@@ -3,7 +3,8 @@
 --  -----------------------------------------------------------------------
 --  A poll hangs off one chat message (usually an announcement) and can ask
 --  several questions, each with its own options and how many you may pick.
---  Votes are anonymous: the room sees counts, and you see your own picks.
+--  Votes are public: poll_voters() says who picked each option (people in
+--  private mode are counted, not named).
 --  Voting goes through vote_poll(), results through poll_results(). Polls
 --  are posted by an admin (or straight from SQL). Safe to re-run.
 -- =========================================================================
@@ -86,6 +87,27 @@ as $$
     from v join t on t.poll_id = v.poll_id and t.q = v.q
    group by v.poll_id, v.q, v.opt, t.voters
 $$;
+
+-- Who picked each option. Private mode is a count, never a name.
+create or replace function public.poll_voters(p_polls uuid[])
+returns table (poll_id uuid, q int, opt int, who uuid[], hidden int)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with v as (
+    select a.poll_id, a.q, unnest(a.opts) opt, a.user_id, a.updated_at, coalesce(p.hide_hours, false) priv
+      from public.chat_poll_answers a left join public.profiles p on p.id = a.user_id
+     where a.poll_id = any (p_polls[1:60]) and cardinality(a.opts) > 0
+  )
+  select v.poll_id, v.q, v.opt,
+         coalesce(array_agg(v.user_id order by v.updated_at) filter (where not v.priv), '{}'),
+         (count(*) filter (where v.priv))::int
+    from v group by v.poll_id, v.q, v.opt
+$$;
+revoke execute on function public.poll_voters(uuid[]) from public, anon;
+grant  execute on function public.poll_voters(uuid[]) to authenticated;
 
 revoke execute on function public.vote_poll(uuid, int, int[]) from public, anon;
 revoke execute on function public.poll_results(uuid[])        from public, anon;

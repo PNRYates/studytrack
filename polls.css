@@ -29,3 +29,15 @@
 .ann .poll-opt.mine{border-color:var(--ann-gold);box-shadow:0 0 0 1px var(--ann-gold) inset}
 .ann .poll-opt.mine .poll-ol{color:#F7E3B0}
 .ann .poll-foot{color:#9AA4B3;opacity:1}
+/* who picked what */
+.poll-faces{position:relative;z-index:1;display:inline-flex;margin-left:auto;margin-right:2px}
+.poll-faces .av{width:20px;height:20px;font-size:8px;margin-left:-6px;border:2px solid var(--surface)}
+.poll-faces .av:first-child{margin-left:0}
+.ann .poll-faces .av{border-color:#1A2130}
+.poll-who{appearance:none;border:0;background:none;padding:0;font:inherit;color:inherit;text-decoration:underline;cursor:pointer}
+.poll-names{display:grid;gap:5px;font-size:12.5px;line-height:1.45;padding:8px 10px;border-radius:8px;background:var(--surface-2)}
+.ann .poll-names{background:rgba(255,255,255,.04);color:#D9DEE7}
+.poll-nrow b{margin-right:6px;font-weight:700}
+.ann .poll-nrow b{color:var(--ann-gold)}
+.poll-name{cursor:pointer}
+.poll-name:hover{text-decoration:underline}

@@ -551,6 +551,16 @@
             });
             return Promise.resolve({ data: out, error: null });
           }
+          if (name === "poll_voters") {
+            const out = [];
+            (T.chat_poll_answers || []).filter(a => (args.p_polls || []).includes(a.poll_id)).forEach(a => a.opts.forEach(o => {
+              let r = out.find(x => x.poll_id === a.poll_id && x.q === a.q && x.opt === o);
+              if (!r) out.push(r = { poll_id: a.poll_id, q: a.q, opt: o, who: [], hidden: 0 });
+              const p = T.profiles.find(x => x.id === a.user_id);
+              if (p && p.hide_hours && a.user_id !== ME) r.hidden++; else r.who.push(a.user_id);
+            }));
+            return Promise.resolve({ data: out, error: null });
+          }
           if (name === "vote_poll") {
             T.chat_poll_answers = (T.chat_poll_answers || []).filter(a => !(a.poll_id === args.p_poll && a.user_id === ME && a.q === args.p_q));
             T.chat_poll_answers.push({ poll_id: args.p_poll, user_id: ME, q: args.p_q, opts: args.p_opts || [] });

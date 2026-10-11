@@ -4,9 +4,10 @@
    A poll hangs off a chat message (polls.sql) and can ask several questions.
    Tap an option to vote; the live split shows once you have answered that
    question, so everyone guesses before seeing what the room thinks. Tap your
-   pick again to take it back. Votes are anonymous: counts only.
+   pick again to take it back. Votes are public: each option shows who picked
+   it (people in private mode are counted, not named).
    ========================================================================= */
-const POLL = { byMsg: {}, res: {}, busy: new Set(), at: 0 };
+const POLL = { byMsg: {}, res: {}, who: {}, open: new Set(), busy: new Set(), at: 0 };
 
 /* the polls on whatever messages are loaded, and their counts */
 async function loadChatPolls(force) {
@@ -25,8 +26,16 @@ async function loadPollResults(force) {
   if (!polls.length) return;
   if (!force && Date.now() - POLL.at < 4000) return;
   POLL.at = Date.now();
-  const { data, error } = await sb.rpc("poll_results", { p_polls: polls });
+  const [{ data, error }, vw] = await Promise.all([
+    sb.rpc("poll_results", { p_polls: polls }),
+    sb.rpc("poll_voters", { p_polls: polls })
+  ]);
   if (error) return;
+  if (!vw.error) {
+    const who = {};
+    (vw.data || []).forEach(r => { who[r.poll_id + "|" + r.q + "|" + r.opt] = { ids: r.who || [], hidden: Number(r.hidden) || 0 }; });
+    POLL.who = who;
+  }
   const next = {};
   (data || []).forEach(r => {
     const p = next[r.poll_id] || (next[r.poll_id] = {});
@@ -61,14 +70,24 @@ function pollHTML(m) {
       <div class="poll-opts">${(q.options || []).map((o, oi) => {
         const n = r.opts[oi] || 0, pct = r.voters ? Math.round(n / r.voters * 100) : 0;
         const mine = r.mine.includes(oi);
+        const w = POLL.who[p.id + "|" + qi + "|" + oi] || { ids: [], hidden: 0 };
+        const names = w.ids.map(id => (profileOf(id) || {}).display_name || "someone");
         return `<button type="button" class="poll-opt${mine ? " mine" : ""}${show ? " shown" : ""}${show && n === top && n > 0 ? " lead" : ""}"
-          data-pollvote="${esc(p.id)}|${qi}|${oi}" ${closed ? "disabled" : ""} aria-pressed="${mine}">
+          data-pollvote="${esc(p.id)}|${qi}|${oi}" ${closed ? "disabled" : ""} aria-pressed="${mine}"
+          ${show && names.length ? `title="${esc(names.join(", "))}${w.hidden ? ` +${w.hidden}` : ""}"` : ""}>
           ${show ? `<i style="width:${pct}%"></i>` : ""}
           <span class="poll-ol">${mine ? "✓ " : ""}${esc(o)}</span>
+          ${show && w.ids.length ? `<span class="poll-faces">${w.ids.slice(-4).map(id => avatarHTML(profileOf(id), "sm")).join("")}</span>` : ""}
           ${show ? `<span class="poll-pc">${pct}%</span>` : ""}
         </button>`;
       }).join("")}</div>
-      <div class="poll-foot">${r.voters} ${r.voters === 1 ? "guess" : "guesses"}${show ? "" : " · vote to see the split"}${closed ? " · closed" : ""}</div>
+      <div class="poll-foot">${r.voters} ${r.voters === 1 ? "guess" : "guesses"}${show ? "" : " · vote to see the split"}${closed ? " · closed" : ""}${
+        show && r.voters ? ` · <button type="button" class="poll-who" data-pollwho="${esc(p.id)}|${qi}">${POLL.open.has(p.id + "|" + qi) ? "Hide names" : "See who voted"}</button>` : ""} · votes are public</div>
+      ${show && POLL.open.has(p.id + "|" + qi) ? `<div class="poll-names">${(q.options || []).map((o, oi) => {
+        const w = POLL.who[p.id + "|" + qi + "|" + oi] || { ids: [], hidden: 0 };
+        if (!w.ids.length && !w.hidden) return "";
+        return `<div class="poll-nrow"><b>${esc(o)}</b><span>${w.ids.map(id => `<span class="poll-name" data-profile="${esc(id)}">${esc(id === UID ? "You" : (profileOf(id) || {}).display_name || "someone")}</span>`).join(", ")}${w.hidden ? `${w.ids.length ? ", " : ""}${w.hidden} private` : ""}</span></div>`;
+      }).join("")}</div>` : ""}
     </div>`;
   }).join("")}</div>`;
 }
@@ -107,6 +126,8 @@ async function pollVote(pid, qi, oi) {
 }
 
 document.addEventListener("click", e => {
+  const t = e.target.closest && e.target.closest("[data-pollwho]");
+  if (t) { const k = t.dataset.pollwho; POLL.open.has(k) ? POLL.open.delete(k) : POLL.open.add(k); paintChat(); return; }
   const b = e.target.closest && e.target.closest("[data-pollvote]");
   if (!b || b.disabled) return;
   const [pid, qi, oi] = b.dataset.pollvote.split("|");
