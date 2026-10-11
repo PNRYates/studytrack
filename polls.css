@@ -1,0 +1,31 @@
+/* =========================================================================
+   POLLS IN CHAT — sit on an announcement's slab (or a normal bubble)
+   ========================================================================= */
+.poll{display:grid;gap:14px;margin-top:12px}
+.poll-q{display:grid;gap:7px}
+.poll-qt{font-size:14px;font-weight:650;line-height:1.35;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.poll-hint{font-size:11px;font-weight:600;opacity:.65;text-transform:uppercase;letter-spacing:.06em}
+.poll-opts{display:grid;gap:6px}
+.poll-opt{position:relative;overflow:hidden;appearance:none;font:inherit;text-align:left;cursor:pointer;
+  display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:36px;padding:8px 12px;
+  border-radius:10px;border:1px solid var(--rule);background:var(--surface);color:var(--ink);
+  transition:border-color var(--fast),transform var(--fast)}
+.poll-opt:hover:not(:disabled){border-color:var(--ink-soft);transform:translateY(-1px)}
+.poll-opt:disabled{cursor:default}
+.poll-opt i{position:absolute;left:0;top:0;bottom:0;background:var(--accent-wash);z-index:0;transition:width .4s var(--ease)}
+.poll-opt.lead i{background:rgba(232,64,42,.16)}
+.poll-opt.mine{border-color:var(--accent)}
+.poll-ol,.poll-pc{position:relative;z-index:1}
+.poll-ol{font-size:13.5px;font-weight:600}
+.poll-pc{font-size:12.5px;font-weight:700;font-variant-numeric:tabular-nums;opacity:.85}
+.poll-foot{font-size:11.5px;opacity:.65}
+
+/* on an announcement: the gold-on-navy slab */
+.ann .poll-qt{color:#F2F5FA}
+.ann .poll-opt{background:rgba(255,255,255,.05);border-color:rgba(233,194,106,.28);color:#E6EAF1}
+.ann .poll-opt:hover:not(:disabled){border-color:rgba(233,194,106,.7)}
+.ann .poll-opt i{background:rgba(233,194,106,.16)}
+.ann .poll-opt.lead i{background:rgba(233,194,106,.32)}
+.ann .poll-opt.mine{border-color:var(--ann-gold);box-shadow:0 0 0 1px var(--ann-gold) inset}
+.ann .poll-opt.mine .poll-ol{color:#F7E3B0}
+.ann .poll-foot{color:#9AA4B3;opacity:1}

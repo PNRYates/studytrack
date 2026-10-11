@@ -755,6 +755,7 @@ have reminders on, and the nudge itself is generated and sent without any human 
 | `believe.sql` | `exam_wishes`, `wish_luck()`, `exam_wishes_on()` and the `believe_demo` preview flag. Safe to re-run |
 | `plan.sql` | `study_plan` and the two functions that write it. Safe to re-run |
 | `diag.js`, `diag.sql` | Problem reports from browsers (slow start, freezes and hangs with the functions responsible, memory, errors), capped and kept for 14 days |
+| `polls.js`, `polls.css`, `polls.sql` | Polls on chat messages: several questions each, pick one or several, anonymous counts shown once you've voted, optional closing time. Posted from SQL for now |
 | `limits.sql` | How long anything people type can be (names 48, subjects 80, areas 120, notes 1,000, …) and that colours are real colours; sign-up trims a long name instead of failing. Safe to re-run |
 | `planner.js`, `planner.css` | The day planner under the lead-up chart: from your plan, Top 3, schedule, to-dos |
 | `planner.sql` | `study_todos` and `todo_save` / `todo_delete` / `todo_carry`. Safe to re-run |

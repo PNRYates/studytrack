@@ -132,6 +132,15 @@
                         image_path: null, created_at: mins(ago) }));
   })();
 
+  /* polls.sql: a prediction poll on an announcement, a few votes already in */
+  T.chat_polls = [{ id: uid(1300), message_id: uid(1299), closes_at: null, questions: [
+    { q: "Which poem will be prescribed?", options: ["Prufrock", "Magi", "Hollow Men", "Rhapsody", "Preludes", "None"], max: 1 },
+    { q: "Which form?", options: ["Discursive", "Imaginative", "Persuasive", "Choice"], max: 2 }] }];
+  T.messages.push({ id: uid(1299), user_id: ME, body: "The Prediction Game · Mod B", mentions: [], image_path: null,
+    announcement: true, ann_label: "Prediction Game", created_at: new Date(Date.now() - 60000).toISOString() });
+  T.chat_poll_answers = [[uid(2), 0, [0]], [uid(3), 0, [2]], [uid(4), 0, [0]], [uid(2), 1, [0, 3]]]
+    .map(([u, q, opts]) => ({ poll_id: uid(1300), user_id: u, q, opts }));
+
   /* ?dirty=1 seeds one entry per integrity rule so the admin console's
      detection can actually be exercised locally. Off by default. */
   if (/dirty=1/.test(location.search)) {
@@ -530,6 +539,23 @@
               given: [[uid(2), 57], [ME, 44], [uid(4), 12], [uid(3), 3]] } });
           }
           /* exam-day wishes (believe.sql); a few already in, from the others */
+          if (name === "poll_results") {
+            const out = [];
+            (T.chat_poll_answers || []).filter(a => (args.p_polls || []).includes(a.poll_id) && a.opts.length).forEach(a => {
+              const voters = T.chat_poll_answers.filter(b => b.poll_id === a.poll_id && b.q === a.q && b.opts.length).length;
+              a.opts.forEach(o => {
+                let r = out.find(x => x.poll_id === a.poll_id && x.q === a.q && x.opt === o);
+                if (!r) out.push(r = { poll_id: a.poll_id, q: a.q, opt: o, n: 0, mine: false, voters });
+                r.n++; if (a.user_id === ME) r.mine = true;
+              });
+            });
+            return Promise.resolve({ data: out, error: null });
+          }
+          if (name === "vote_poll") {
+            T.chat_poll_answers = (T.chat_poll_answers || []).filter(a => !(a.poll_id === args.p_poll && a.user_id === ME && a.q === args.p_q));
+            T.chat_poll_answers.push({ poll_id: args.p_poll, user_id: ME, q: args.p_q, opts: args.p_opts || [] });
+            return Promise.resolve({ data: { ok: true }, error: null });
+          }
           if (name === "exam_wishes_on") {
             if (!T.exam_wishes) {
               T.exam_wishes = [];

@@ -6175,6 +6175,7 @@ function annHTML(m) {
         title="Delete this announcement">delete</button>` : ""}
     </div>
     <div class="ann-text">${withMentions(esc(m.body), m.mentions)}</div>
+    ${typeof pollHTML === "function" ? pollHTML(m) : ""}
     ${msgReactionsHTML(m)}
   </div>`;
 }
@@ -6417,6 +6418,7 @@ function msgHTML(m, prev) {
         ? `<img class="msgimg" src="${esc(signedFor(m.image_path))}" alt="Picture from ${esc(p.display_name)}"
              loading="lazy" decoding="async" data-full="${esc(m.image_path)}">`
         : `<div class="msgimg pending" style="width:160px;height:110px"></div>`) : ""}
+      ${typeof pollHTML === "function" ? pollHTML(m) : ""}
       ${msgReactionsHTML(m)}
     </div>
   </div>`;
@@ -6547,7 +6549,7 @@ async function loadChat() {
     CHAT.loaded = true;
     paintChat();
     /* After the rows, because it asks by id for exactly the ones just read. */
-    try { await loadChatEmoji(); await loadChatReactions(); paintChat(); }
+    try { await loadChatEmoji(); await loadChatReactions(); if (typeof loadChatPolls === "function") await loadChatPolls(true); paintChat(); }
     catch (e) { /* the room reads fine without them */ }
     chatScrollBottom(true);
   } finally { CHAT.busy = false; }
@@ -6572,7 +6574,7 @@ async function loadOlderChat() {
     CHAT.rows = older.filter(shownInChat).concat(CHAT.rows);
     CHAT.oldest = older[0].created_at;
     paintChat();
-    try { await loadChatReactions(); paintChat(); } catch (e) { /* not fatal */ }
+    try { await loadChatReactions(); if (typeof loadChatPolls === "function") await loadChatPolls(true); paintChat(); } catch (e) { /* not fatal */ }
     if (log) log.scrollTop = log.scrollHeight - was;   /* stay where you were reading */
     if (btn && older.length < CHAT_PAGE) btn.hidden = true;
   } finally {
@@ -6590,6 +6592,7 @@ function onChatInsert(payload) {
      mentioned costs no extra subscription — just a look at the list. */
   if (m.user_id !== UID && Array.isArray(m.mentions) && m.mentions.indexOf(UID) > -1) noteMention(m);
   if (m.image_path) signImages([m.image_path]).then(() => { if (chatIsOpen()) paintChat(); });
+  if (typeof pollSeen === "function") pollSeen(m);
   CHAT.rows.push(m);
   if (CHAT.rows.length > 300) CHAT.rows.splice(0, CHAT.rows.length - 300);
   if (chatIsOpen()) {
