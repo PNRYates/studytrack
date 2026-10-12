@@ -320,7 +320,6 @@ const PLN_CALC = /^(Mathematics|Physics|Chemistry|Biology|Earth and Environmenta
 function plnChecklist(ex) {
   const items = [
     `Arrive by <b>${esc(plnTime(minusMinutes(ex.start, 30)) || "30 minutes early")}</b>, half an hour before reading time`,
-    "Your student card and NESA number",
     "Black pens, plus spares",
     "A clear water bottle, label off"
   ];
