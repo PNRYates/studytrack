@@ -201,9 +201,10 @@ function friendlyError(msg) {
   const m = /violates check constraint "([a-z_]+)"/.exec(String(msg || ""));
   return m && DB_LIMITS[m[1]] ? DB_LIMITS[m[1]] : msg;
 }
-function toast(msg, ms) {
+function toast(msg, ms, kind) {
   msg = String(msg || "").replace(/new row for relation "\w+" violates check constraint "[a-z_]+"/, x => friendlyError(x));
   const t = $("toast"); t.textContent = msg; t.classList.add("on");
+  t.classList.toggle("warn", kind === "warn");
   clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("on"), ms || 2600);
 }
 const tt = $("tt");
@@ -2135,6 +2136,31 @@ $("ms-save").addEventListener("click", async () => {
   $("ov-save").classList.remove("on"); paintTimer();
 });
 
+/* The logging rules, the same numbers sessions_guard.sql enforces in the
+   database. Checked here first so whoever breaks one gets a plain warning
+   straight away rather than a refused save. */
+const LOG_MAX_SESSION = 480, LOG_MAX_DAY = 960, LOG_BACK_DAYS = 7;
+/* What's wrong with logging `minutes` on `day`, or null. `before` is the
+   session being edited, if it is one: shortening or re-noting is always
+   fine, only adding time or moving it is held to the rules. */
+function logRuleBreak(day, minutes, before) {
+  const t = todayISO();
+  const grows = !before || before.day !== day || minutes > before.minutes;
+  if (!grows) return null;
+  if (day > addDays(t, 1)) return "You can't log study on a day that hasn't happened yet.";
+  if (minutes > LOG_MAX_SESSION)
+    return `One session can be 8 hours at most, and that's ${hm(minutes / 60)}. Log what you actually studied, and take a break.`;
+  if (day < addDays(t, -LOG_BACK_DAYS) && !(before && typeof IS_ADMIN !== "undefined" && IS_ADMIN))
+    return `Study can only be logged for the last ${LOG_BACK_DAYS} days, back to ${fmtD(addDays(t, -LOG_BACK_DAYS))}.`;
+  const had = (DB.sessions || []).filter(x => x.user_id === UID && x.day === day && (!before || x.id !== before.id))
+    .reduce((n, x) => n + (x.minutes || 0), 0);
+  if (had + minutes > LOG_MAX_DAY)
+    return `That would put ${fmtD(day)} at ${hm((had + minutes) / 60)}. A day can have 16 hours at most` +
+      (had ? `, and you've already logged ${hm(had / 60)}.` : ".");
+  return null;
+}
+function logRuleWarn(msg) { toast("⚠ " + msg, 7000, "warn"); }
+
 /* Answers whether the session actually reached the database. Callers that are
    about to throw away the timer it came from have to know: binning a running
    timer on the strength of a save that never happened loses the hours for
@@ -2145,6 +2171,11 @@ async function addSession(day, target, minutes, note, fromTimer) {
   if (!minutes || minutes < 1) { toast("Minutes needs to be at least 1"); return false; }
   /* Off the timer, split at midnight: one row per day it ran on. */
   const parts = Array.isArray(fromTimer) ? splitByDay(fromTimer, minutes, day) : [{ day, minutes, runs: null }];
+  /* the whole session for the 8 hours (a timer across midnight is still one
+     sitting), then each day it lands on for the rest */
+  const broke = (minutes > LOG_MAX_SESSION && logRuleBreak(day, minutes)) ||
+    parts.map(p => logRuleBreak(p.day, p.minutes)).find(Boolean);
+  if (broke) { logRuleWarn(broke); return false; }
   const rows = parts.map(p => {
     const row = { user_id: UID, subject_id: target.subject_id, area_id: target.area_id,
       day: p.day, minutes: p.minutes, note: note || null };
@@ -3393,6 +3424,12 @@ $("e-del").addEventListener("click", async () => {
   if (!confirm("Delete this session? It cannot be undone.")) return;
   const id = editingId, owner = editingOwner;
   const before = DB.sessions.find(x => x.id === id);
+  /* your own: the rules, said plainly. Someone else's (an admin fixing it):
+     the database still holds it to them, and says so if not. */
+  if (!owner || owner === UID) {
+    const broke = logRuleBreak(day, minutes, before);
+    if (broke) { logRuleWarn(broke); return; }
+  }
   if (owner && owner !== UID && typeof admLog === "function") {
     await admLog("session.delete", owner, profileOf(owner).display_name,
       before ? `${f1(before.minutes / 60)} h on ${before.day} — ${labelOf(before)}` : "session", before);
@@ -3414,7 +3451,7 @@ $("e-save").addEventListener("click", async () => {
   const day = $("e-day").value;
   if (!day) { toast("Pick a date"); return; }
   const minutes = Math.round(+$("e-min").value);
-  if (!minutes || minutes < 1 || minutes > 1440) { toast("Minutes has to be between 1 and 1440"); return; }
+  if (!minutes || minutes < 1) { toast("Minutes needs to be at least 1"); return; }
 
   const id = editingId, owner = editingOwner;
   const before = DB.sessions.find(x => x.id === id);
@@ -5361,8 +5398,25 @@ function parseCSV(text) {
 }
 async function runImport(parsed) {
   const rep = $("imp-report");
-  const rows = parsed.rows.filter(r => r.day && r.minutes > 0);
-  if (!rows.length) { rep.innerHTML = `<div class="note bad">Nothing importable found in that file.</div>`; return; }
+  /* The logging rules apply to imports too: anything older than a week, over
+     8 hours, or past 16 hours on its day is left out, and the report says so. */
+  const dayMins = {};
+  (DB.sessions || []).forEach(x => { if (x.user_id === UID) dayMins[x.day] = (dayMins[x.day] || 0) + (x.minutes || 0); });
+  const t0 = todayISO(), oldest = addDays(t0, -LOG_BACK_DAYS);
+  const skipped = { old: 0, long: 0, full: 0 };
+  const rows = parsed.rows.filter(r => r.day && r.minutes > 0).filter(r => {
+    const m = Math.round(r.minutes);
+    if (r.day < oldest || r.day > addDays(t0, 1)) { skipped.old++; return false; }
+    if (m > LOG_MAX_SESSION) { skipped.long++; return false; }
+    if ((dayMins[r.day] || 0) + m > LOG_MAX_DAY) { skipped.full++; return false; }
+    dayMins[r.day] = (dayMins[r.day] || 0) + m;
+    return true;
+  });
+  const skipNote = skipped.old + skipped.long + skipped.full
+    ? ` Left out: ${[skipped.old && `${skipped.old} from more than ${LOG_BACK_DAYS} days ago`,
+        skipped.long && `${skipped.long} over 8 hours`, skipped.full && `${skipped.full} that would take a day past 16 hours`]
+        .filter(Boolean).join(", ")}.` : "";
+  if (!rows.length) { rep.innerHTML = `<div class="note bad">Nothing importable found in that file.${esc(skipNote)}</div>`; return; }
   rep.innerHTML = `<div class="note">Importing ${rows.length} sessions…</div>`;
   try {
     const subMap = {}, areaMap = {};
@@ -5388,11 +5442,12 @@ async function runImport(parsed) {
       const sid = subMap[(r.subject || "Imported").toLowerCase()];
       return { user_id: UID, subject_id: sid || null,
         area_id: r.area ? (areaMap[sid + "|" + r.area.toLowerCase()] || null) : null,
-        day: r.day, minutes: Math.min(1440, Math.max(1, Math.round(r.minutes))),
+        day: r.day, minutes: Math.min(LOG_MAX_SESSION, Math.max(1, Math.round(r.minutes))),
         mode: r.mode, note: r.note };
     });
-    /* The database refuses impossible rows (a future day, a day over 20 h,
-       more than 60 sessions in an hour: sessions_guard.sql), so a batch can
+    /* The database refuses impossible rows (a future day, over 8 h, a day
+       over 16 h, older than a week, more than 60 sessions in an hour:
+       sessions_guard.sql), so a batch can
        fail. Stop there and say how far it got rather than claim success. */
     let saved = 0;
     for (let i = 0; i < payload.length; i += 50) {
@@ -5411,7 +5466,7 @@ async function runImport(parsed) {
       for (let i = 0; i < gp.length; i += 200) await sb.from("goals").upsert(gp.slice(i, i + 200));
     }
     await refresh();
-    rep.innerHTML = `<div class="note ok">Imported ${payload.length} sessions, created ${newSubs} subject${newSubs === 1 ? "" : "s"} and ${newAreas} area${newAreas === 1 ? "" : "s"}${gs.length ? `, plus ${gs.length} daily goals` : ""}.</div>`;
+    rep.innerHTML = `<div class="note ok">Imported ${payload.length} sessions, created ${newSubs} subject${newSubs === 1 ? "" : "s"} and ${newAreas} area${newAreas === 1 ? "" : "s"}${gs.length ? `, plus ${gs.length} daily goals` : ""}.${esc(skipNote)}</div>`;
     toast("Import finished");
   } catch (e) {
     rep.innerHTML = `<div class="note bad">Import failed: ${esc(e.message || e)}</div>`;
