@@ -153,6 +153,9 @@ function blvHTML() {
   const others = all.filter(s => !mineKeys.has(s.key) && s.n > 0 && s.endAt > now);
   const left = X.list.filter(e => e.endAt > now).length;
 
+  /* Once your last paper of the day is over the band goes away, and comes
+     back at midnight on the morning of your next one. */
+  if (mine.length && mine.every(s => s.endAt <= now)) return "";
   if (mine.length) {
     const cur = mine.find(s => s.endAt > now) || mine[mine.length - 1];
     const state = cur.endAt <= now ? "done" : now >= cur.at ? "live" : "pre";
