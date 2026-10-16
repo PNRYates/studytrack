@@ -28,6 +28,10 @@
    between 5 and 50 capped hours, the top handful just over 100. That leaves
    Band 6 and HSC Legend genuinely ahead of everybody with five weeks to go,
    and both reachable at four or five hours a day.
+   State Rank was added on 16 October, when five people had already passed
+   200. The leaders were on 200–225 with about three weeks of exams left, so
+   300 is in reach for the steadiest few at four or five hours a day. Nobody
+   gets there with all-nighters, because only 8 hours a day count.
    --------------------------------------------------------------------------- */
 const PL_DAY_CAP = 8;
 const PL_LEVELS = [
@@ -39,7 +43,8 @@ const PL_LEVELS = [
   { n: 6, name: "Scholar",    at: 75,  col: "#7A4FD6" },
   { n: 7, name: "Elite",      at: 100, col: "#C98A0B" },
   { n: 8, name: "Band 6",     at: 150, col: "#0F8FA0" },
-  { n: 9, name: "HSC Legend", at: 200, col: "#D6336C" }
+  { n: 9, name: "HSC Legend", at: 200, col: "#D6336C" },
+  { n: 10, name: "State Rank", at: 300, col: "#1B1B1F" }
 ];
 
 /* Colour themes, one more at each level. They only repaint the brand accent;
@@ -53,7 +58,8 @@ const PL_THEMES = [
   { id: "rose",     name: "Rose",     lvl: 6, a: "#D6336C", a2: "#FF6B9A", ink: "#A11F4E", wash: "#FFEEF4" },
   { id: "midnight", name: "Midnight", lvl: 7, a: "#2D3D78", a2: "#5B74C9", ink: "#1E2A57", wash: "#EEF1FA" },
   { id: "lagoon",   name: "Lagoon",   lvl: 8, a: "#0B8EA0", a2: "#2FC9D9", ink: "#086A77", wash: "#E6F8FA" },
-  { id: "aurora",   name: "Aurora",   lvl: 9, a: "#B4339C", a2: "#FF7A4D", ink: "#83206F", wash: "#FCEEF8" }
+  { id: "aurora",   name: "Aurora",   lvl: 9, a: "#B4339C", a2: "#FF7A4D", ink: "#83206F", wash: "#FCEEF8" },
+  { id: "onyx",     name: "Onyx",     lvl: 10, a: "#1F2023", a2: "#C9A227", ink: "#000000", wash: "#F5F2E8" }
 ];
 
 /* ---------------------------------------------------------------------------

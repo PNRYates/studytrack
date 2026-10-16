@@ -334,7 +334,7 @@ All of this lives in `play.js` and `play.css`, on top of four read-only function
   timed session is exact to the minute. One typed in for a different day counts towards the
   day's total but no particular hour.
 - **Your place today** sits in the masthead chip (`#4`), counting running timers.
-- **Levels** 1–9 (Rookie to HSC Legend) come from hours with **at most 8 counted per day**, so
+- **Levels** 1–10 (Rookie to State Rank at 300 h, added 16 Oct) come from hours with **at most 8 counted per day**, so
   the way up is coming back tomorrow, not staying up. Each level unlocks a colour theme on My
   stats. Themes only swap the brand accent; the goal colours are data and never change.
   Thresholds were set from the real spread on 1 October 2026.
