@@ -3373,13 +3373,17 @@ async function loadReactions() {
   try { checkReactions(); } catch (e) { /* a missed notice is not worth a crash */ }
 }
 
-/* When a session was logged. For a timed one that is when it finished; for one
-   added by hand, when it was typed in. Either way it is the only clue to when
-   in the day the work happened, so it goes on every row. A session filed
-   against a different day from the one it was logged on says which. */
+/* When a session finished. With its times (the timer's stretches, or the
+   From and To of a block typed in by hand) that is the end of the last one,
+   so a block backlogged at 4:53pm for 10am-4:30pm says 4:30pm, not when it
+   was typed in. An old session with no times falls back to when it was
+   saved. A session filed against a different day from the one it ended on
+   says which. */
 function loggedAt(s) {
-  if (!s.created_at) return "";
-  const d = new Date(s.created_at);
+  const runs = Array.isArray(s.runs) ? s.runs : [];
+  const end = runs.length ? runs.reduce((m, r) => new Date(r[1]) > new Date(m) ? r[1] : m, runs[0][1]) : s.created_at;
+  if (!end) return "";
+  const d = new Date(end);
   const same = isoOf(d) === s.day;
   return (same ? "" : d.toLocaleDateString("en-AU", { weekday: "short" }) + " ") + clockOf(d, true);
 }
@@ -3391,7 +3395,7 @@ function entryHTML(s, withWho) {
     <div>${withWho ? `<span class="wholink" data-profile="${esc(s.user_id)}" title="See ${esc(p.display_name)}'s full profile">${esc(p.display_name)}</span><span style="color:var(--ink-soft);font-size:11.5px"> · </span>` : ""}
       <strong style="color:${colourOf(s)}">${esc(labelOf(s))}</strong>
       ${withWho ? `<span class="etime"> · ${fmtD(s.day)}${at ? " · " + esc(at) : ""}</span>`
-                : (at ? `<span class="etime" title="When this was logged"> · logged ${esc(at)}</span>` : "")}</div>
+                : (at ? `<span class="etime" title="When this session finished"> · logged ${esc(at)}</span>` : "")}</div>
     <div style="text-align:right;font-weight:600">${f1(s.minutes / 60)} h</div>
     ${s.user_id === UID ? `<span class="acts">
       <button class="x pencil" data-edit="${s.id}" title="Edit this session" aria-label="Edit this session">✎</button>
