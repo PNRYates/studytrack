@@ -3017,13 +3017,22 @@ function repaintReactions(id) {
    The first run on a device seeds the list without announcing anything.
    Otherwise installing the app on your phone would open with two weeks of
    kudos you have already had on your laptop.
+
+   Only sessions saved in the last RX_RECENT_H hours, and the timer running
+   now, are looked at. It is news about what you just did. Looking at every
+   session ever overflowed the seen list (it keeps 800; most people have
+   more reactions than that), so the oldest kept falling out of it and
+   coming back as new on every load. v2 of the key starts everyone over,
+   quietly, once.
    --------------------------------------------------------------------------- */
-const RX_SEEN_KEY = "crew.rxseen.v1";
+const RX_SEEN_KEY = "crew.rxseen.v2";
+const RX_RECENT_H = 48;
 let RXSEEN = null;          /* Set of keys, or null until first read */
 let RXNEW = [];             /* [{ by, kind, what }] waiting to be looked at */
 
 function rxSeenLoad() {
   if (RXSEEN) return RXSEEN;
+  try { localStorage.removeItem("crew.rxseen.v1"); } catch (e) { /* only tidying */ }
   try {
     const raw = localStorage.getItem(RX_SEEN_KEY);
     RXSEEN = new Set(raw ? JSON.parse(raw) : null);
@@ -3041,8 +3050,9 @@ function rxSeenSave() {
 
 /* Every reaction currently pointed at you, as stable keys. */
 function myReactionKeys() {
-  const out = [];
+  const out = [], since = Date.now() - RX_RECENT_H * 3600e3;
   (DB.sessions || []).forEach(sn => {
+    if (sn.user_id !== UID || !sn.created_at || new Date(sn.created_at).getTime() < since) return;
     const r = DB.reactions[sn.id];
     if (!r) return;
     RX_KINDS.forEach(k => (r[k.kind] || []).forEach(by =>
