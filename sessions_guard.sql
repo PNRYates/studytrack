@@ -28,8 +28,11 @@
 --      you already logged by more than a minute (slack for clocks and
 --      rounding), so the same hour can't be backlogged twice, or on top of
 --      what the timer recorded;
---    * a session saved with no times (an app still cached from before) may
---      not be an exact copy of one you saved in the last 2 minutes.
+--    * every session needs its times. A new one, or one that gains time or
+--      moves, has to say when it happened (runs); the hand-log form asks for
+--      From and To, the timer always had them. A session from before, with
+--      no times, can still be shortened or re-noted, and admins can still
+--      fix one. (This replaced a same-save-twice check for timeless saves.)
 --  Both only bite on writes that add time or move a session, like the rest:
 --  37 older sessions already overlap one another, and trimming or re-noting
 --  them still works.
@@ -100,15 +103,11 @@ begin
     end if;
   end if;
 
-  /* no times to compare: at least not the same save twice */
-  if tg_op = 'INSERT' and new.runs is null and exists (
-       select 1 from public.sessions s
-        where s.user_id = new.user_id and s.day = new.day and s.minutes = new.minutes
-          and s.subject_id is not distinct from new.subject_id
-          and s.area_id is not distinct from new.area_id
-          and coalesce(trim(s.note), '') = coalesce(trim(new.note), '')
-          and s.created_at > now() - interval '2 minutes') then
-    raise exception 'That session is already logged (it was saved twice)' using errcode = 'check_violation';
+  /* every session says when it happened, so none can overlap unseen */
+  if grows and jsonb_typeof(new.runs) is distinct from 'array'
+     and not (tg_op = 'UPDATE' and coalesce(public.is_admin(), false)) then
+    raise exception 'A session needs a start and end time. Refresh the page, then log it with From and To'
+      using errcode = 'check_violation';
   end if;
 
   if tg_op = 'INSERT' and (select count(*) from public.sessions
