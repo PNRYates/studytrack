@@ -276,9 +276,15 @@
         <div class="card">
           <header><h2>Log a block by hand</h2><div class="sub">For anything you did not time</div></header>
           <div class="body">
-            <div class="grid" style="grid-template-columns:1.3fr 1.3fr .7fr auto;gap:10px;align-items:end">
+            <div class="grid" style="grid-template-columns:1fr 1fr;gap:10px;align-items:end">
               <div><label class="fl" for="f-subj">Subject</label><select id="f-subj"></select></div>
               <div><label class="fl" for="f-area">Area</label><select id="f-area"></select></div>
+            </div>
+            <!-- When it happened, so two blocks can't claim the same hour.
+                 From and To fill in Minutes; From and Minutes fill in To. -->
+            <div class="grid" style="grid-template-columns:1fr 1fr .8fr auto;gap:10px;align-items:end;margin-top:10px">
+              <div><label class="fl" for="f-from">From</label><input type="time" id="f-from" step="300"></div>
+              <div><label class="fl" for="f-to">To</label><input type="time" id="f-to" step="300"></div>
               <div><label class="fl" for="f-min">Minutes</label><input type="number" id="f-min" min="1" max="480" step="5" value="60"></div>
               <div><button class="btn" id="f-add">Add</button></div>
             </div>
