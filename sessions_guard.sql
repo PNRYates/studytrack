@@ -20,6 +20,19 @@
 --  trimming a session or fixing its note always works. The database owner
 --  (SQL editor, no signed-in user) is exempt, so quarantined sessions can be
 --  put back. app.js checks the same numbers first and says so plainly.
+--
+--  17 Oct 2026, no overlaps (70 double-saved copies quarantined on 13 Oct):
+--    * two of your sessions can't cover the same time. runs says when a
+--      session happened: the stretches off the timer, or the From and To a
+--      block typed in by hand now has. A new one may not overlap anything
+--      you already logged by more than a minute (slack for clocks and
+--      rounding), so the same hour can't be backlogged twice, or on top of
+--      what the timer recorded;
+--    * a session saved with no times (an app still cached from before) may
+--      not be an exact copy of one you saved in the last 2 minutes.
+--  Both only bite on writes that add time or move a session, like the rest:
+--  37 older sessions already overlap one another, and trimming or re-noting
+--  them still works.
 --  Safe to re-run.
 -- =========================================================================
 create index if not exists sessions_user_created_idx on public.sessions (user_id, created_at);
@@ -34,6 +47,8 @@ declare
   today date := (now() at time zone 'Australia/Sydney')::date;
   day_total int;
   grows boolean;
+  hit_a timestamptz;
+  hit_b timestamptz;
 begin
   /* true when this write adds time or moves the session */
   grows := tg_op = 'INSERT' or new.day is distinct from old.day
@@ -63,6 +78,37 @@ begin
       raise exception 'That would put % over 16 hours, the most one day can have', to_char(new.day, 'Dy DD Mon')
         using errcode = 'check_violation';
     end if;
+  end if;
+
+  /* no two sessions covering the same time */
+  if grows and jsonb_typeof(new.runs) = 'array' then
+    select (q->>0)::timestamptz, (q->>1)::timestamptz into hit_a, hit_b
+      from public.sessions s,
+           jsonb_array_elements(s.runs) q,
+           jsonb_array_elements(new.runs) r
+     where s.user_id = new.user_id and s.id <> new.id
+       and s.day between new.day - 1 and new.day + 1
+       and jsonb_typeof(s.runs) = 'array'
+       and least((q->>1)::timestamptz, (r->>1)::timestamptz)
+         - greatest((q->>0)::timestamptz, (r->>0)::timestamptz) > interval '1 minute'
+     limit 1;
+    if found then
+      raise exception 'That overlaps a session you''ve already logged (% to %). Two sessions can''t cover the same time',
+        to_char(hit_a at time zone 'Australia/Sydney', 'FMHH12:MIam Dy DD Mon'),
+        to_char(hit_b at time zone 'Australia/Sydney', 'FMHH12:MIam')
+        using errcode = 'check_violation';
+    end if;
+  end if;
+
+  /* no times to compare: at least not the same save twice */
+  if tg_op = 'INSERT' and new.runs is null and exists (
+       select 1 from public.sessions s
+        where s.user_id = new.user_id and s.day = new.day and s.minutes = new.minutes
+          and s.subject_id is not distinct from new.subject_id
+          and s.area_id is not distinct from new.area_id
+          and coalesce(trim(s.note), '') = coalesce(trim(new.note), '')
+          and s.created_at > now() - interval '2 minutes') then
+    raise exception 'That session is already logged (it was saved twice)' using errcode = 'check_violation';
   end if;
 
   if tg_op = 'INSERT' and (select count(*) from public.sessions

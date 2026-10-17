@@ -197,7 +197,7 @@ main{padding:26px 0 80px}
    ========================================================================= */
 label.fl{display:block;font-size:11.5px;color:var(--ink-mid);margin-bottom:5px;font-weight:600}
 select,input[type=text],input[type=email],input[type=password],input[type=number],
-input[type=date],textarea{
+input[type=date],input[type=time],textarea{
   width:100%;font:inherit;font-size:13.5px;color:var(--ink);background:var(--surface);
   border:1px solid var(--rule);border-radius:var(--r-sm);padding:9px 12px;
   transition:border-color var(--fast) var(--ease),box-shadow var(--fast) var(--ease);
@@ -707,7 +707,7 @@ h3.sec{font-size:11.5px;color:var(--ink-soft);font-weight:700;margin:0 0 10px;
      markup that generates them, and anything under 16px makes iOS zoom the
      whole page the moment you tap into it. */
   select,input[type=text],input[type=email],input[type=password],
-  input[type=number],input[type=date],textarea{font-size:16px !important;padding:11px 13px}
+  input[type=number],input[type=date],input[type=time],textarea{font-size:16px !important;padding:11px 13px}
   select{padding-right:36px}
   button.btn{padding:11px 18px;min-height:44px}
   button.btn.sm{padding:9px 13px;min-height:38px}

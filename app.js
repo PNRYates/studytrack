@@ -2124,7 +2124,7 @@ $("ms-save").addEventListener("click", async () => {
   $("ms-save").disabled = true;
   let saved = false;
   const runs = timerRunsNow(localTimer);
-  try { saved = await addSession(day, t, +$("ms-min").value, $("ms-note").value.trim(), runs.length ? runs : true); }
+  try { saved = await addSession(day, t, +$("ms-min").value, $("ms-note").value.trim(), runs, true); }
   finally { savingSession = false; $("ms-save").disabled = false; }
 
   /* Nothing was written, so the timer stays exactly as it was and the sheet
@@ -2161,20 +2161,50 @@ function logRuleBreak(day, minutes, before) {
 }
 function logRuleWarn(msg) { toast("⚠ " + msg, 7000, "warn"); }
 
+/* No two of your sessions can claim the same time: the same rule as
+   sessions_guard.sql, with the same minute of slack at the edges for clocks
+   and rounding. Only sessions that know when they happened are compared; an
+   old one typed in with no times has nothing to overlap. `exceptId` is the
+   session being edited; `timerToo` also holds a block typed in by hand
+   against the timer that is running now. */
+const OVERLAP_SLACK = 60000;
+function overlapBreak(runs, exceptId, timerToo) {
+  const span = r => [new Date(r[0]).getTime(), new Date(r[1]).getTime()];
+  const hits = (q) => runs.some(r => {
+    const [a, b] = span(r), [c, d] = span(q);
+    return Math.min(b, d) - Math.max(a, c) > OVERLAP_SLACK;
+  });
+  const when = q => { const [c, d] = span(q).map(x => new Date(x));
+    return clockOf(c, true) + "–" + clockOf(d, true) + " on " + fmtD(isoOf(c)); };
+  if (timerToo && localTimer) {
+    const q = timerRunsNow(localTimer).find(hits);
+    if (q) return `Your timer was running then (${when(q)}). Two sessions can't cover the same time.`;
+  }
+  for (const s of DB.sessions || []) {
+    if (s.user_id !== UID || s.id === exceptId || !Array.isArray(s.runs)) continue;
+    const q = s.runs.find(hits);
+    if (q) return `That overlaps a session you've already logged: ${labelOf(s)}, ${when(q)}. ` +
+      "Two sessions can't cover the same time.";
+  }
+  return null;
+}
+
 /* Answers whether the session actually reached the database. Callers that are
    about to throw away the timer it came from have to know: binning a running
    timer on the strength of a save that never happened loses the hours for
    good, and there is nowhere to get them back from. */
-/* fromTimer is true, or the stretches it ran, when the session came off the
-   timer; a session typed in by hand has neither. */
-async function addSession(day, target, minutes, note, fromTimer) {
+/* runs is when it happened, [[startISO, endISO], ...]: the stretches the
+   timer ran, or the From and To of a block typed in by hand. fromTimer is
+   true when it came off the timer. */
+async function addSession(day, target, minutes, note, runs, fromTimer) {
   if (!minutes || minutes < 1) { toast("Minutes needs to be at least 1"); return false; }
-  /* Off the timer, split at midnight: one row per day it ran on. */
-  const parts = Array.isArray(fromTimer) ? splitByDay(fromTimer, minutes, day) : [{ day, minutes, runs: null }];
+  /* Split at midnight: one row per day it ran on. */
+  const parts = runs && runs.length ? splitByDay(runs, minutes, day) : [{ day, minutes, runs: null }];
   /* the whole session for the 8 hours (a timer across midnight is still one
      sitting), then each day it lands on for the rest */
   const broke = (minutes > LOG_MAX_SESSION && logRuleBreak(day, minutes)) ||
-    parts.map(p => logRuleBreak(p.day, p.minutes)).find(Boolean);
+    parts.map(p => logRuleBreak(p.day, p.minutes)).find(Boolean) ||
+    parts.map(p => p.runs && overlapBreak(p.runs, null, !fromTimer)).find(Boolean);
   if (broke) { logRuleWarn(broke); return false; }
   const rows = parts.map(p => {
     const row = { user_id: UID, subject_id: target.subject_id, area_id: target.area_id,
@@ -2324,13 +2354,47 @@ $("ov-recap").addEventListener("click", e => { if (e.target === $("ov-recap")) $
 setInterval(maybeShowRecap, 60000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) setTimeout(maybeShowRecap, 1500); });
 
-/* ---------- manual add ---------- */
-document.querySelectorAll("[data-min]").forEach(b => b.addEventListener("click", () => $("f-min").value = b.dataset.min));
+/* ---------- manual add ----------
+   A block typed in by hand says when it happened, From and To, so it can be
+   held against everything else you logged that day: nobody can type in the
+   same hour twice, or an hour the timer already has. From and To fill in
+   Minutes; From and Minutes (or a Quick chip) fill in To. A To earlier than
+   From runs past midnight. */
+const hhmmMins = t => { const m = /^(\d\d):(\d\d)/.exec(t || ""); return m ? +m[1] * 60 + +m[2] : null; };
+const minsHHMM = m => pad(Math.floor(m / 60) % 24) + ":" + pad(m % 60);
+function fSync(changed) {
+  const st = hhmmMins($("f-from").value), et = hhmmMins($("f-to").value);
+  const len = Math.round(+$("f-min").value) || 0;
+  if (st === null) return;
+  if (changed === "to") { if (et !== null && et !== st) $("f-min").value = (et - st + 1440) % 1440; return; }
+  if (len >= 1) $("f-to").value = minsHHMM(st + len);
+}
+$("f-from").addEventListener("change", () => fSync("from"));
+$("f-to").addEventListener("change", () => fSync("to"));
+$("f-min").addEventListener("input", () => fSync("min"));
+document.querySelectorAll("[data-min]").forEach(b => b.addEventListener("click", () => {
+  $("f-min").value = b.dataset.min; fSync("min");
+}));
+let addingByHand = false;
 $("f-add").addEventListener("click", async () => {
+  if (addingByHand) return;              /* a double tap must not log it twice */
   const t = readPair("f-subj", "f-area");
   if (!t.subject_id) { toast("Add a subject in Setup first"); return; }
-  await addSession(CUR, t, +$("f-min").value, $("f-note").value.trim());
-  $("f-note").value = "";
+  const st = hhmmMins($("f-from").value), minutes = Math.round(+$("f-min").value);
+  if (st === null) { toast("Put in the time you started (From)"); $("f-from").focus(); return; }
+  if (!minutes || minutes < 1) { toast("Minutes needs to be at least 1"); return; }
+  const [y, mo, d] = CUR.split("-").map(Number);
+  const a = new Date(y, mo - 1, d, 0, st), b = new Date(a.getTime() + minutes * 60000);
+  if (b.getTime() > Date.now() + 5 * 60000) {
+    logRuleWarn(`That block runs until ${clockOf(b, true)}${isoOf(b) === todayISO() ? "" : " on " + fmtD(isoOf(b))}, ` +
+      "which hasn't happened yet. Log it once you've done it.");
+    return;
+  }
+  addingByHand = true; $("f-add").disabled = true;
+  let saved = false;
+  try { saved = await addSession(CUR, t, minutes, $("f-note").value.trim(), [[a.toISOString(), b.toISOString()]], false); }
+  finally { addingByHand = false; $("f-add").disabled = false; }
+  if (saved) { $("f-note").value = ""; $("f-from").value = ""; $("f-to").value = ""; }
 });
 $("h-date").addEventListener("change", e => { if (e.target.value) { CUR = e.target.value; renderHome(); } });
 /* No daily goal above 12 hours, anywhere. The database refuses one too
@@ -3401,6 +3465,18 @@ function openEdit(id) {
   $("ov-edit").classList.add("on");
   setTimeout(() => $("e-min").focus(), 60);
 }
+/* A session's stretches after an edit: the same clock times on its new day,
+   and a lone stretch (a block typed in by hand) cut or stretched to the new
+   length. Local dates, so a daylight-saving change moves nobody's 9am. */
+function movedRuns(runs, fromDay, toDay, minutes) {
+  const shift = Math.round((parseD(toDay) - parseD(fromDay)) / 864e5);
+  const move = iso => { const d = new Date(iso); d.setDate(d.getDate() + shift); return d; };
+  if (runs.length === 1) {
+    const a = move(runs[0][0]);
+    return [[a.toISOString(), new Date(a.getTime() + minutes * 60000).toISOString()]];
+  }
+  return shift ? runs.map(r => [move(r[0]).toISOString(), move(r[1]).toISOString()]) : runs;
+}
 function closeEdit() { editingId = null; editingOwner = null; $("ov-edit").classList.remove("on"); }
 
 /* A profile modal is built once and left alone, so an edit made from inside
@@ -3424,12 +3500,6 @@ $("e-del").addEventListener("click", async () => {
   if (!confirm("Delete this session? It cannot be undone.")) return;
   const id = editingId, owner = editingOwner;
   const before = DB.sessions.find(x => x.id === id);
-  /* your own: the rules, said plainly. Someone else's (an admin fixing it):
-     the database still holds it to them, and says so if not. */
-  if (!owner || owner === UID) {
-    const broke = logRuleBreak(day, minutes, before);
-    if (broke) { logRuleWarn(broke); return; }
-  }
   if (owner && owner !== UID && typeof admLog === "function") {
     await admLog("session.delete", owner, profileOf(owner).display_name,
       before ? `${f1(before.minutes / 60)} h on ${before.day} — ${labelOf(before)}` : "session", before);
@@ -3455,14 +3525,27 @@ $("e-save").addEventListener("click", async () => {
 
   const id = editingId, owner = editingOwner;
   const before = DB.sessions.find(x => x.id === id);
+  /* When it happened goes with it: moved to another day, to the same time
+     that day; a single block typed in by hand ends where its new length does.
+     A timer session's stretches stay as they ran, the charts scale them. */
+  const runs = before && Array.isArray(before.runs) && before.runs.length
+    ? movedRuns(before.runs, before.day, day, minutes) : null;
+  /* your own: the rules, said plainly. Someone else's (an admin fixing it):
+     the database still holds it to them, and says so if not. */
+  if (!owner || owner === UID) {
+    const grows = !before || before.day !== day || minutes > before.minutes;
+    const broke = logRuleBreak(day, minutes, before) || (grows && runs && overlapBreak(runs, id, true));
+    if (broke) { logRuleWarn(broke); return; }
+  }
   if (owner && owner !== UID && typeof admLog === "function") {
     await admLog("session.edit", owner, profileOf(owner).display_name,
       `${before ? f1(before.minutes / 60) + " h on " + before.day : "session"} → ${f1(minutes / 60)} h on ${day}`,
       before);
   }
-  const { error } = await sb.from("sessions").update({
-    subject_id: t.subject_id, area_id: t.area_id,
-    day, minutes, note: $("e-note").value.trim() || null }).eq("id", id);
+  const patch = { subject_id: t.subject_id, area_id: t.area_id,
+    day, minutes, note: $("e-note").value.trim() || null };
+  if (runs) patch.runs = runs;
+  const { error } = await sb.from("sessions").update(patch).eq("id", id);
   if (error) { toast("Could not save: " + error.message); return; }
   closeEdit();
   toast("Session updated");
