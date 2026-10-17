@@ -7002,3 +7002,61 @@ function paintPokeBar() {
     if (start) { start.scrollIntoView({ block: "center", behavior: "smooth" }); start.focus(); }
   });
 }
+
+/* ---------------------------------------------------------------------------
+   A NEW VERSION, WHILE THE APP IS OPEN
+   GitHub Pages serves a new app.js the moment a change is merged, but a tab
+   that was already open keeps running the old one until somebody reloads it,
+   which on a laptop that never closes can be days. So every 10 minutes, and
+   whenever the tab comes back into view, this asks Pages whether app.js has
+   changed: a HEAD request, a few hundred bytes, nothing from Supabase.
+
+   When it has: a tab in the background with nothing half-done reloads by
+   itself; one in front of somebody shows a bar and leaves the reload to
+   them, so it never happens under their hands. Dismissed, it reloads the
+   next time the tab goes into the background. A running timer lives in the
+   database, so a reload never loses one.
+   --------------------------------------------------------------------------- */
+const UPD_SRC = document.currentScript && document.currentScript.src ? document.currentScript.src.split("?")[0] : null;
+const UPD_EVERY = 10 * 60 * 1000;
+let updStamp = null, updReady = false, updLast = 0;
+async function updFetchStamp() {
+  try {
+    const r = await fetch(UPD_SRC, { method: "HEAD", cache: "no-store" });
+    return r.ok ? (r.headers.get("etag") || r.headers.get("last-modified")) : null;
+  } catch (e) { return null; }
+}
+/* Something open or half-typed that a reload would throw away. */
+function updBusy() {
+  if (document.querySelector(".ov.on")) return true;
+  if (typeof ADM !== "undefined" && ADM.open) return true;
+  const a = document.activeElement;
+  if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return true;
+  return ["f-note", "f-from", "chat-input", "td-title"].some(id => $(id) && $(id).value.trim());
+}
+function updApply() {
+  if (!updReady) return;
+  if (document.hidden && !updBusy()) { location.reload(); return; }
+  if (document.hidden || $("updatebar")) return;
+  const bar = document.createElement("div");
+  bar.id = "updatebar"; bar.setAttribute("role", "status");
+  bar.innerHTML = `<span>Study Track has been updated</span>
+    <button class="btn sm" id="ub-go">Reload</button>
+    <button class="x" id="ub-x" title="Later" aria-label="Later">×</button>`;
+  document.body.appendChild(bar);
+  $("ub-go").addEventListener("click", () => location.reload());
+  $("ub-x").addEventListener("click", () => bar.remove());
+}
+async function updCheck() {
+  if (!UPD_SRC || updReady || Date.now() - updLast < 60000) return;
+  updLast = Date.now();
+  const s = await updFetchStamp();
+  if (!s) return;                              /* offline, or a server that says nothing */
+  if (!updStamp) { updStamp = s; return; }     /* the version this tab is running */
+  if (s !== updStamp) { updReady = true; updApply(); }
+}
+setInterval(updCheck, UPD_EVERY);
+/* Back in view with an update already waiting (it held off for something
+   half-typed): offer it now. */
+document.addEventListener("visibilitychange", () => { if (document.hidden || updReady) updApply(); else updCheck(); });
+updCheck();
