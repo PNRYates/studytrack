@@ -2123,7 +2123,9 @@ $("ms-save").addEventListener("click", async () => {
   savingSession = true;
   $("ms-save").disabled = true;
   let saved = false;
-  const runs = timerRunsNow(localTimer);
+  let runs = timerRunsNow(localTimer);
+  /* a stretch shorter than the 30 s timerRunsNow ignores: it ended now */
+  if (!runs.length) runs = [[new Date(Date.now() - elapsedMs()).toISOString(), new Date().toISOString()]];
   try { saved = await addSession(day, t, +$("ms-min").value, $("ms-note").value.trim(), runs, true); }
   finally { savingSession = false; $("ms-save").disabled = false; }
 
@@ -2380,9 +2382,12 @@ $("f-add").addEventListener("click", async () => {
   if (addingByHand) return;              /* a double tap must not log it twice */
   const t = readPair("f-subj", "f-area");
   if (!t.subject_id) { toast("Add a subject in Setup first"); return; }
-  const st = hhmmMins($("f-from").value), minutes = Math.round(+$("f-min").value);
+  const st = hhmmMins($("f-from").value), et = hhmmMins($("f-to").value);
   if (st === null) { toast("Put in the time you started (From)"); $("f-from").focus(); return; }
-  if (!minutes || minutes < 1) { toast("Minutes needs to be at least 1"); return; }
+  if (et === null) { toast("Put in the time you finished (To)"); $("f-to").focus(); return; }
+  /* From and To are what was done; Minutes is only there to fill them in */
+  const minutes = (et - st + 1440) % 1440;
+  if (minutes < 1) { toast("To has to be after From"); $("f-to").focus(); return; }
   const [y, mo, d] = CUR.split("-").map(Number);
   const a = new Date(y, mo - 1, d, 0, st), b = new Date(a.getTime() + minutes * 60000);
   if (b.getTime() > Date.now() + 5 * 60000) {
@@ -3534,7 +3539,10 @@ $("e-save").addEventListener("click", async () => {
      the database still holds it to them, and says so if not. */
   if (!owner || owner === UID) {
     const grows = !before || before.day !== day || minutes > before.minutes;
-    const broke = logRuleBreak(day, minutes, before) || (grows && runs && overlapBreak(runs, id, true));
+    const broke = logRuleBreak(day, minutes, before) ||
+      (grows && !runs && "This session has no start and end time, so it can only be shortened or re-noted. " +
+        "Delete it and log it again with From and To.") ||
+      (grows && runs && overlapBreak(runs, id, true));
     if (broke) { logRuleWarn(broke); return; }
   }
   if (owner && owner !== UID && typeof admLog === "function") {
@@ -5529,8 +5537,9 @@ async function runImport(parsed) {
         mode: r.mode, note: r.note };
     });
     /* The database refuses impossible rows (a future day, over 8 h, a day
-       over 16 h, older than a week, more than 60 sessions in an hour:
-       sessions_guard.sql), so a batch can
+       over 16 h, older than a week, more than 60 sessions in an hour, and
+       since 17 Oct 2026 any session with no start and end time, which is
+       every imported one: sessions_guard.sql), so a batch can
        fail. Stop there and say how far it got rather than claim success. */
     let saved = 0;
     for (let i = 0; i < payload.length; i += 50) {
