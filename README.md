@@ -760,6 +760,7 @@ have reminders on, and the nudge itself is generated and sent without any human 
 | `planner.js`, `planner.css` | The day planner under the lead-up chart: from your plan, Top 3, schedule, to-dos |
 | `planner.sql` | `study_todos` and `todo_save` / `todo_delete` / `todo_carry`. Safe to re-run |
 | `sessions_guard.sql` | What the database won't take in `sessions`: future days, a session over 8 h, a day over 16 h, anything more than 7 days back (admins can still fix old ones), a session with no start and end time, two sessions covering the same time, over 60 sessions an hour. app.js warns about the same rules before saving. Safe to re-run |
+| `exams_over.sql` | No session for a course that starts after its last HSC paper has finished (times from the NESA timetable in `catalogue.js`; change both together). app.js warns first, and also when you start a timer. Safe to re-run |
 | `perf.sql` | Row level policies that check who you are once per query, the shared `stats_cache`, and indexes. Safe to re-run |
 | `stats.sql` | The four read-only functions behind them (`crew_clock`, `crew_subject_hours`, `kudos_board`, `reaction_board`, `badge_stats`). Safe to re-run |
 | `config.js` | Your Supabase keys and group name |

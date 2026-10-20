@@ -2073,6 +2073,8 @@ $("tm-start").addEventListener("click", async () => {
   else {
     const t = readPair("tm-subj", "tm-area");
     if (!t.subject_id) { toast("Add a subject in Setup first"); return; }
+    const over = examOverBreak(t.subject_id, null);
+    if (over) { logRuleWarn(over.replace("Log this under", "Time this for")); return; }
     const sj = subjById(t.subject_id), ar = t.area_id ? areaById(t.area_id) : null;
     localTimer = { label: ar ? (sj ? sj.name + " · " + ar.name : ar.name) : (sj ? sj.name : "Study"),
       subject_id: t.subject_id, area_id: t.area_id, acc_ms: 0,
@@ -2163,6 +2165,35 @@ function logRuleBreak(day, minutes, before) {
 }
 function logRuleWarn(msg) { toast("⚠ " + msg, 7000, "warn"); }
 
+/* When the last paper of a subject's course finishes (the NESA timetable in
+   catalogue.js), or null for a subject with no course. exams_over.sql holds
+   the database to the same times; this also knows the hand-typed names. */
+function catClock(t) {
+  const s = String(t || "").toLowerCase();
+  if (/noon/.test(s)) return [12, 0];
+  const m = /(\d+)[.:](\d+)\s*(am|pm)/.exec(s);
+  return m ? [+m[1] % 12 + (m[3] === "pm" ? 12 : 0), +m[2]] : [23, 59];
+}
+function examsOverAt(subjectId) {
+  const sj = subjectId && subjById(subjectId), c = sj && catFor(sj.name);
+  if (!c || !c.exams || !c.exams.length) return null;
+  return c.exams.reduce((last, e) => {
+    const [y, mo, d] = e.date.split("-").map(Number), [h, mi] = catClock(e.end);
+    const t = new Date(y, mo - 1, d, h, mi);
+    return !last || t > last ? t : last;
+  }, null);
+}
+/* Study that starts after the subject's last paper has finished, or null.
+   No runs means a timer about to start, now. */
+function examOverBreak(subjectId, runs) {
+  const end = examsOverAt(subjectId);
+  if (!end) return null;
+  const start = runs && runs.length ? Math.min(...runs.map(r => new Date(r[0]).getTime())) : Date.now();
+  if (start < end.getTime()) return null;
+  return `Your ${subjById(subjectId).name} exam finished on ${fmtD(isoOf(end))} at ${clockOf(end, true)}. ` +
+    "Log this under a subject you still have to sit.";
+}
+
 /* No two of your sessions can claim the same time: the same rule as
    sessions_guard.sql, with the same minute of slack at the edges for clocks
    and rounding. Only sessions that know when they happened are compared; an
@@ -2206,7 +2237,8 @@ async function addSession(day, target, minutes, note, runs, fromTimer) {
      sitting), then each day it lands on for the rest */
   const broke = (minutes > LOG_MAX_SESSION && logRuleBreak(day, minutes)) ||
     parts.map(p => logRuleBreak(p.day, p.minutes)).find(Boolean) ||
-    parts.map(p => p.runs && overlapBreak(p.runs, null, !fromTimer)).find(Boolean);
+    parts.map(p => p.runs && overlapBreak(p.runs, null, !fromTimer)).find(Boolean) ||
+    (runs && runs.length && examOverBreak(target.subject_id, runs));
   if (broke) { logRuleWarn(broke); return false; }
   const rows = parts.map(p => {
     const row = { user_id: UID, subject_id: target.subject_id, area_id: target.area_id,
@@ -3556,7 +3588,8 @@ $("e-save").addEventListener("click", async () => {
     const broke = logRuleBreak(day, minutes, before) ||
       (grows && !runs && "This session has no start and end time, so it can only be shortened or re-noted. " +
         "Delete it and log it again with From and To.") ||
-      (grows && runs && overlapBreak(runs, id, true));
+      (grows && runs && overlapBreak(runs, id, true)) ||
+      ((grows || !before || before.subject_id !== t.subject_id) && runs && examOverBreak(t.subject_id, runs));
     if (broke) { logRuleWarn(broke); return; }
   }
   if (owner && owner !== UID && typeof admLog === "function") {
