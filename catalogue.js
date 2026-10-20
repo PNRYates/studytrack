@@ -81,6 +81,9 @@ window.HSC_CATALOGUE = (function () {
   { name: "English Extension 2", cat: "english", units: 1,
     exams: [],
     note: "No written exam — assessed on the Major Work and Reflection Statement.",
+    /* no paper to finish, so study for it stops with the rest of English
+       (the last English paper): exams_over.sql and examsOverAt */
+    logUntil: { date: "2026-10-14", end: "11.30 am" },
     areas: ["Major Work — drafting",
             "Major Work — editing and redrafting",
             "Reflection Statement",

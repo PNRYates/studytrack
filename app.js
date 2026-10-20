@@ -2176,8 +2176,11 @@ function catClock(t) {
 }
 function examsOverAt(subjectId) {
   const sj = subjectId && subjById(subjectId), c = sj && catFor(sj.name);
-  if (!c || !c.exams || !c.exams.length) return null;
-  return c.exams.reduce((last, e) => {
+  if (!c) return null;
+  /* a course with no written paper may still have a date study stops */
+  const papers = (c.exams || []).concat(c.logUntil ? [c.logUntil] : []);
+  if (!papers.length) return null;
+  return papers.reduce((last, e) => {
     const [y, mo, d] = e.date.split("-").map(Number), [h, mi] = catClock(e.end);
     const t = new Date(y, mo - 1, d, h, mi);
     return !last || t > last ? t : last;
