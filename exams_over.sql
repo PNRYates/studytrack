@@ -7,10 +7,12 @@
 --  subject has to have started before then.
 --
 --  hsc_last_paper is when each course's last paper ends, from the NESA
---  timetable in catalogue.js (44 courses). Change the timetable there and
---  here together. A subject matches by its exact course name, ignoring
---  case; app.js also catches subjects typed in by hand ("maths adv") with
---  the same matching it uses everywhere else.
+--  timetable in catalogue.js (45 courses). A course with no written
+--  paper can still have a logUntil there: English Extension 2 stops with the
+--  last English paper. Change catalogue.js and this together. A subject
+--  matches by its exact course name, ignoring case; app.js also catches
+--  subjects typed in by hand ("maths adv") with the same matching it uses
+--  everywhere else.
 --
 --  Like sessions_guard.sql it only bites on writes that add time, move a
 --  session or change its subject, and not on sessions with no times (they
@@ -41,6 +43,7 @@ insert into public.hsc_last_paper (course, last_end) values
   ('english advanced'                  , '2026-10-14 11:30 Australia/Sydney'),
   ('english eal/d'                     , '2026-10-14 11:10 Australia/Sydney'),
   ('english extension 1'               , '2026-10-28 16:00 Australia/Sydney'),
+  ('english extension 2'               , '2026-10-14 11:30 Australia/Sydney'),
   ('english standard'                  , '2026-10-14 11:30 Australia/Sydney'),
   ('enterprise computing'              , '2026-10-29 12:20 Australia/Sydney'),
   ('french continuers'                 , '2026-11-03 17:00 Australia/Sydney'),
