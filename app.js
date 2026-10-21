@@ -711,6 +711,19 @@ function friendlyAuthError(err) {
   return (err && err.message) || "That did not work.";
 }
 
+/* Signed up but never clicked the link: say so, and send it again on asking. */
+function offerResend(email) {
+  $("au-msg").innerHTML = `<div class="msg err">You haven't confirmed your email yet. Click the link we sent to
+    ${esc(email)} (check spam too), then sign in. <button type="button" class="linkbtn" id="au-resend">Send it again</button></div>`;
+  $("au-resend").addEventListener("click", async () => {
+    $("au-resend").disabled = true;
+    const { error } = await sb.auth.resend({ type: "signup", email,
+      options: { emailRedirectTo: location.origin + location.pathname } });
+    authMsg(error ? "err" : "ok", error ? friendlyAuthError(error)
+      : "Sent again to " + email + ". It can take a minute, and it lands in spam more often than it should.");
+  });
+}
+
 let authBusy = false;
 async function doAuth() {
   if (authBusy) return;                                  /* stop double submits */
@@ -762,8 +775,16 @@ async function doAuth() {
   authMsg();
   try {
     if (up) {
+      /* No throwaway addresses and no look-alike names (signup_rules.sql).
+         The database refuses them anyway; asking first means a plain reason
+         instead of "Database error saving new user". */
+      const { data: ok } = await sb.rpc("signup_check", { email, name });
+      if (ok && ok.ok === false) { authMsg("err", ok.why); return; }
       const { data, error } = await sb.auth.signUp({
-        email, password: pass, options: { data: { display_name: name } }
+        email, password: pass,
+        /* the confirmation link comes back to this page, like the reset link
+           (it has to be on the Redirect URLs list in Supabase) */
+        options: { data: { display_name: name }, emailRedirectTo: location.origin + location.pathname }
       });
       if (error) throw error;
 
@@ -781,9 +802,11 @@ async function doAuth() {
       const { data: d2, error: e2 } = await sb.auth.signInWithPassword({ email, password: pass });
       if (!e2 && d2 && d2.session) { await enterSession(d2.session); return; }
       switchMode("in");
-      authMsg("ok", "Account created. Click the confirmation link in your email, then come back and sign in.");
+      authMsg("ok", "Account created. We've emailed " + email + " a link: click it, then come back and sign in. " +
+                    "Check your spam folder if it isn't there in a minute.");
     } else {
       const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
+      if (error && /email not confirmed/i.test(error.message || "")) { offerResend(email); return; }
       if (error) throw error;
       if (!data || !data.session) throw new Error("Signed in, but no session came back. Try again.");
       await enterSession(data.session);
@@ -1543,7 +1566,9 @@ $("ob-finish").addEventListener("click", async () => {
     }
     capGoalInputs(DOW.map((_, i) => "obwk" + i).concat("ob-default"));
     const wk = DOW.map((_, i) => capGoal($("obwk" + i).value, true));
-    await sb.from("profiles").update({
+    const why = await nameRefused($("ob-name").value.trim());
+    if (why) { logRuleWarn(why); $("ob-finish").disabled = false; return; }
+    const { error: pe } = await sb.from("profiles").update({
       display_name: $("ob-name").value.trim(),
       colour: $("ob-colour").value,
       avatar_url,
@@ -1551,6 +1576,7 @@ $("ob-finish").addEventListener("click", async () => {
       default_goal: capGoal($("ob-default").value, true),
       onboarded: true
     }).eq("id", UID);
+    if (pe) throw pe;
 
     for (let i = 0; i < obSubjects.length; i++) {
       const s = obSubjects[i];
@@ -4970,9 +4996,20 @@ function renderSetup() {
     await refresh(); toast("Subject renamed");
   }));
 }
+/* A display name too close to somebody else's is refused (signup_rules.sql):
+   ask first, so the reason comes back plainly. Answers the reason, or null. */
+async function nameRefused(name) {
+  if (!name || name === (ME && ME.display_name)) return null;
+  const { data } = await sb.rpc("name_check", { name });
+  return data && data.ok === false ? data.why : null;
+}
 $("s-saveprofile").addEventListener("click", async () => {
-  await sb.from("profiles").update({ display_name: $("s-name").value.trim() || ME.display_name,
+  const name = $("s-name").value.trim() || ME.display_name;
+  const why = await nameRefused(name);
+  if (why) { logRuleWarn(why); return; }
+  const { error } = await sb.from("profiles").update({ display_name: name,
     colour: $("s-colour").value }).eq("id", UID);
+  if (error) { toast("Could not save: " + error.message, 5000, "warn"); return; }
   await refresh(); toast("Profile saved");
 });
 $("s-avfile").addEventListener("change", async e => {
