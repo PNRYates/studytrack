@@ -694,7 +694,7 @@ async function saveNewPassword(pass, again) {
 }
 
 /* The device a sign-up came from, kept with the attempt in signup_log
-   (signup_log.sql) so fake accounts can be traced. The form says so. */
+   (signup_log.sql) so fake accounts can be traced. */
 function signupDevice() {
   const n = navigator, s = screen, c = n.connection || {};
   const ua = n.userAgentData;

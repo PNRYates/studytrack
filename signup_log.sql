@@ -6,7 +6,7 @@
 --  few days. Every sign-up attempt now leaves a row: the email and name
 --  typed, whether it was let through (and why not), the IP, browser and
 --  country from the request, and a few device details the page sends
---  (screen, time zone, language, touch). The sign-up form says so.
+--  (screen, time zone, language, touch).
 --
 --  signup_check gains an optional third argument (the device details) and
 --  becomes volatile so it can write. Its verdict moves, unchanged, into
