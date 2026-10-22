@@ -252,11 +252,12 @@ function admNoteMeta(uid) {
     { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }))}`;
 }
 
-function admWho(id, noReal) {
+function admWho(id, noReal, you) {
   const p = profileOf(id);
   const mail = admEmail(id);
   const real = noReal ? "" : admRealName(ADM_NOTES[id]);
   return `<span class="adm-who">${admAvatar(p)}<span class="nm">${esc(p.display_name)}${
+    you ? `<span class="adm-flag mute adm-you">You</span>` : ""}${
     real ? `<span class="adm-real">${esc(real)}</span>` : ""}${
     mail ? `<span class="adm-mail">${esc(mail)}</span>` : ""}</span></span>`;
 }
@@ -967,7 +968,7 @@ function admMembers() {
       const timer = DB.timers.some(t => t.user_id === p.id);
       const me = p.id === UID;
       return `<tr>
-        <td class="l">${admWho(p.id, true)}${me ? ` <span class="adm-flag mute">You</span>` : ""}</td>
+        <td class="l">${admWho(p.id, true, me)}</td>
         <td class="l">${ADM.editReal === p.id ? admRealEditor(p.id) : `
           <button class="adm-realbtn" data-admreal="${esc(p.id)}" title="Edit real name">
             <span class="adm-flag ${L.cls}">${L.tag}</span>
