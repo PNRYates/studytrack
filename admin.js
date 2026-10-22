@@ -56,11 +56,15 @@ async function adminBoot() {
 }
 
 /* ========================================================= NEW ACCOUNTS
-   approvals.sql holds every new account once its email is confirmed. Each
-   one pops up here for an admin to let in or turn away, with what
-   signup_log saw when it was made. Checked on boot and every minute while
-   the tab is in view; "Later" puts one aside for 15 minutes. */
-const PEND = { list:[], snooze:{}, timer:null, busy:false, armed:null };
+   Anyone can join and use the site; chat waits for an admin (vetting.sql,
+   chat_approval.sql). Every account out of chat is in VET, with what
+   signup_log saw when it was made. One an admin has not looked at yet pops
+   up here, on whatever page they are on: let them chat, keep them out of
+   chat (the popup stops), or ban them (the account goes and the address is
+   refused from then on). "Later" puts one aside for 15 minutes. The same
+   list is the console's Awaiting vetting tab. Checked on boot and every
+   minute while the tab is in view. */
+const PEND = { list:[], snooze:{}, timer:null, busy:false, armed:null, loaded:false };
 function admPendingStart() {
   if (PEND.timer) return;
   admPendingCheck();
@@ -70,15 +74,17 @@ function admPendingStart() {
 async function admPendingCheck() {
   if (!IS_ADMIN || PEND.busy) return;
   try {
-    const { data, error } = await sb.rpc("admin_pending");
-    if (error || !Array.isArray(data)) return;   /* approvals.sql not run yet */
-    PEND.list = data;
+    const { data, error } = await sb.rpc("admin_vetting");
+    if (error || !Array.isArray(data)) return;   /* vetting.sql not run yet */
+    PEND.list = data; PEND.loaded = true;
   } catch (e) { return; }
   admPendingPaint();
+  if (ADM.open && ADM.tab === "vetting") renderAdmin();
 }
+const admVetRow = id => PEND.list.find(x => x.id === id) || null;
 function admPendingNext() {
   const now = Date.now();
-  return PEND.list.filter(a => !(PEND.snooze[a.id] > now));
+  return PEND.list.filter(a => !a.reviewed_at && !(PEND.snooze[a.id] > now));
 }
 function admUA(ua) {
   ua = String(ua || "");
@@ -94,6 +100,12 @@ function admWhen(t) {
   if (!t) return "—";
   const d = new Date(t);
   return d.toLocaleString(undefined, { weekday:"short", day:"numeric", month:"short", hour:"numeric", minute:"2-digit" });
+}
+/* "Lewis CHRISTIE · Reid" with how sure the match is */
+function admRealName(n) {
+  if (!n || !n.real_name) return "";
+  const how = { confirmed: "", likely: " (likely)", guess: " (guess)", none: "" }[n.name_match] || "";
+  return n.real_name + how;
 }
 function admPendingPaint() {
   const ov0 = $("ov-pending");
@@ -115,15 +127,17 @@ function admPendingPaint() {
   const same = Array.isArray(a.same_ip) ? a.same_ip : [];
   ov.innerHTML = `<div class="modal pendsheet" role="dialog" aria-modal="true" aria-labelledby="pend-title">
     <header>
-      <div><h2 id="pend-title">New account to approve</h2>
-        <div class="sub">${queue.length > 1 ? `1 of ${queue.length} waiting · ` : ""}They can't get in until an admin lets them.</div></div>
+      <div><h2 id="pend-title">New account</h2>
+        <div class="sub">${queue.length > 1 ? `1 of ${queue.length} new · ` : ""}They can use the site now. Chat stays closed until an admin lets them in.</div></div>
       <button class="x" data-pend="later" data-id="${esc(a.id)}" aria-label="Decide later" style="font-size:22px">&times;</button>
     </header>
     <div class="body">
-      <div class="pendwho"><strong>${esc(a.name || "(no name)")}</strong><span>${esc(a.email || "")}</span></div>
+      <div class="pendwho"><strong>${esc(a.name || a.signup_name || "(no name)")}</strong><span>${esc(a.email || "")}</span></div>
       ${same.length ? `<div class="msg err">Same IP address as: ${esc(same.join(", "))}</div>` : ""}
+      ${a.note ? `<div class="msg">${esc(a.note)}</div>` : ""}
       <table class="pendtab">
-        ${row("Signed up", admWhen(a.signed_up_at))}
+        ${row("Real name", admRealName(a) || "not matched to the Year 12 list")}
+        ${row("Signed up", admWhen(a.created_at))}
         ${row("Email confirmed", admWhen(a.confirmed_at))}
         ${row("Sign-up attempts", a.tries)}
         ${row("IP address", a.ip || "not recorded")}
@@ -133,41 +147,57 @@ function admPendingPaint() {
         ${row("Screen", d.screen)}
         ${row("Time zone", d.tz)}
         ${row("Languages", Array.isArray(d.langs) ? d.langs.join(", ") : (a.language || ""))}
-        ${row("Touch screen", d.touch === undefined ? "" : (d.touch ? "yes" : "no"))}
-        ${row("CPU cores", d.cores)}
-        ${row("Memory", d.memory ? d.memory + " GB" : "")}
-        ${row("Connection", d.net)}
         ${row("Full browser string", a.user_agent)}
       </table>
       <div class="pendgo">
         <button type="button" class="btn ghost" data-pend="later" data-id="${esc(a.id)}">Later</button>
-        <button type="button" class="btn ghost penddeny" data-pend="deny" data-id="${esc(a.id)}">${PEND.armed === a.id ? "Tap again to delete" : "Deny"}</button>
-        <button type="button" class="btn pendok" data-pend="approve" data-id="${esc(a.id)}">Approve</button>
+        <button type="button" class="btn ghost penddeny" data-pend="ban" data-id="${esc(a.id)}">${PEND.armed === a.id ? "Tap again to ban" : "Ban"}</button>
+        <button type="button" class="btn ghost" data-pend="wait" data-id="${esc(a.id)}">Keep out of chat</button>
+        <button type="button" class="btn pendok" data-pend="approve" data-id="${esc(a.id)}">Let them chat</button>
       </div>
     </div>
   </div>`;
   ov.classList.add("on");
+}
+/* approve / wait / ban, from the popup or the Awaiting vetting tab. Ban
+   deletes the login, so it takes two taps (no browser confirm box). */
+async function admVet(what, id, where) {
+  const a = admVetRow(id) || {};
+  const name = a.name || (profileOf(id) || {}).display_name || "That account";
+  if (what === "ban" && PEND.armed !== id) {
+    PEND.armed = id;
+    if (where === "tab") { renderAdmin(); toast("Tap Ban again to delete " + name + " and block their email"); }
+    else admPendingPaint();
+    return false;
+  }
+  if (PEND.busy) return false;
+  PEND.busy = true; PEND.armed = null;
+  try {
+    const { data, error } = await sb.rpc("admin_vet", { target: id, decision: what });
+    if (error) { toast("Could not do that: " + error.message, 5200); return false; }
+    if (data === "gone") toast("Someone else already dealt with " + name);
+    else toast(data === "approved" ? name + " can chat now"
+             : data === "waiting" ? name + " stays out of chat (still in Awaiting vetting)"
+             : name + " banned: account deleted, email blocked", 3600);
+    if (what === "wait") { if (a) a.reviewed_at = new Date().toISOString(); }
+    else PEND.list = PEND.list.filter(x => x.id !== id);
+    if (what === "approve") { const p = DB.profiles.find(x => x.id === id); if (p) p.chat_approved = true; }
+    if (what === "ban") DB.profiles = DB.profiles.filter(x => x.id !== id);
+    return true;
+  } finally {
+    PEND.busy = false;
+    admPendingPaint();
+    if (ADM.open) renderAdmin();
+    if (what !== "wait" && typeof loadAll === "function") { try { await loadAll(); renderAll(); } catch (e) {} }
+  }
 }
 async function admPendingAct(what, id) {
   if (what === "later") {
     PEND.snooze[id] = Date.now() + 15 * 60000; PEND.armed = null;
     admPendingPaint(); return;
   }
-  /* deny deletes the login, so it takes two taps (no browser confirm box) */
-  if (what === "deny" && PEND.armed !== id) { PEND.armed = id; admPendingPaint(); return; }
-  if (PEND.busy) return;
-  PEND.busy = true; PEND.armed = null;
-  const a = PEND.list.find(x => x.id === id) || {};
-  document.querySelectorAll("#ov-pending [data-pend]").forEach(b => b.disabled = true);
-  try {
-    const { data, error } = await sb.rpc("admin_review", { target: id, approve: what === "approve" });
-    if (error) { toast("Could not do that: " + error.message, 5200); }
-    else if (data === "gone") toast("Someone else already dealt with " + (a.name || "that account"));
-    else toast((a.name || "Account") + (data === "approved" ? " approved: they can sign in now" : " denied and deleted"), 3600);
-    if (!error) PEND.list = PEND.list.filter(x => x.id !== id);
-  } finally { PEND.busy = false; }
-  admPendingPaint();
-  if (what === "approve" && typeof loadAll === "function") { try { await loadAll(); renderAll(); } catch (e) {} }
+  document.querySelectorAll("#ov-pending [data-pend]").forEach(b => b.disabled = PEND.armed === id || what !== "ban");
+  await admVet(what, id, "popup");
 }
 
 /* ---------------------------------------------------------------- helpers */
@@ -196,7 +226,7 @@ const admEmail = id => ADM_EMAIL[id] || "";
    is approving sees why it was flagged, and who last said so. */
 let ADM_NOTES = {};
 async function admLoadNotes() {
-  const { data, error } = await sb.from("admin_notes").select("user_id,note,updated_by,updated_at");
+  const { data, error } = await sb.from("admin_notes").select("user_id,note,updated_by,updated_at,reviewed_at,real_name,roster_code,name_match");
   if (error) return;
   ADM_NOTES = {};
   (data || []).forEach(r => { ADM_NOTES[r.user_id] = r; });
@@ -206,9 +236,9 @@ async function admSaveNote(uid, text) {
   const was = ADM_NOTES[uid];
   if ((was ? was.note : "") === note) return;
   const row = { user_id: uid, note, updated_by: UID, updated_at: new Date().toISOString() };
-  const { error } = await sb.from("admin_notes").upsert(row);
+  const { error } = await sb.from("admin_notes").upsert(row, { onConflict: "user_id" });
   if (error) { toast("Could not save the note — " + error.message, 4600); return; }
-  ADM_NOTES[uid] = row;
+  ADM_NOTES[uid] = Object.assign({}, was || {}, row);
   toast("Note saved");
   renderAdmin();
 }
@@ -223,7 +253,9 @@ function admNoteMeta(uid) {
 function admWho(id) {
   const p = profileOf(id);
   const mail = admEmail(id);
+  const real = admRealName(ADM_NOTES[id]);
   return `<span class="adm-who">${admAvatar(p)}<span class="nm">${esc(p.display_name)}${
+    real ? `<span class="adm-real">${esc(real)}</span>` : ""}${
     mail ? `<span class="adm-mail">${esc(mail)}</span>` : ""}</span></span>`;
 }
 const admSessions = uid => admAll().filter(s => s.user_id === uid);
@@ -359,7 +391,7 @@ async function openAdmin() {
   $("adm").hidden = false;
   document.body.style.overflow = "hidden";
   renderAdmin();                      /* frame first, so it does not sit blank */
-  await Promise.all([admLoadSessions(), admLoadChat(), admLoadEmails(), admLoadNotes()]);
+  await Promise.all([admLoadSessions(), admLoadChat(), admLoadEmails(), admLoadNotes(), admPendingCheck()]);
   if (ADM.open) renderAdmin();
 }
 function closeAdmin() {
@@ -645,53 +677,59 @@ async function admSetMuted(uid, on) {
   toast(on ? "Muted" : "Unmuted");
 }
 
-/* New accounts cannot chat until approved here (chat_approval.sql). */
-const admPending = () => DB.profiles.filter(p => p.chat_approved === false)
-  .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+/* Everyone out of chat: the popup's list, or the profiles while it loads. */
+const admPending = () => PEND.loaded ? PEND.list
+  : DB.profiles.filter(p => p.chat_approved === false).map(p => ({ id: p.id, name: p.display_name, created_at: p.created_at }));
 
+/* Members tab "Approve" goes the same way as the popup. */
 async function admSetApproved(uid, on) {
-  const { error } = await sb.from("profiles").update({ chat_approved: on }).eq("id", uid);
+  if (on) { await admVet("approve", uid, "tab"); return; }
+  const { error } = await sb.from("profiles").update({ chat_approved: false }).eq("id", uid);
   if (error) { toast("Could not change that — " + error.message, 4600); return; }
   const p = DB.profiles.find(x => x.id === uid);
-  await admLog(on ? "chat.approve" : "chat.unapprove", uid, p ? p.display_name : null,
-    on ? "approved to chat" : "sent back to awaiting vetting", { email: admEmail(uid) || null });
-  if (p) p.chat_approved = on;
-  renderAdmin();
-  toast(on ? `${p ? p.display_name : "Member"} can chat now` : "Back to awaiting vetting");
+  await admLog("chat.unapprove", uid, p ? p.display_name : null, "sent back to awaiting vetting", { email: admEmail(uid) || null });
+  if (p) p.chat_approved = false;
+  admPendingCheck();
+  toast("Back to awaiting vetting");
 }
 
 function admVetting() {
   const rows = admPending();
-  const when = t => t ? new Date(t).toLocaleString("en-AU",
-    { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "—";
   return `
   <div class="adm-h"><div>
     <h2>Awaiting vetting</h2>
-    <p>Every account made from 22 October starts here. They can log, time, plan and see the boards
-       straight away, but cannot post or react in chat until you approve them. They are told they
-       are waiting on you. Check the email, the name and the note, then approve, or delete a fake.
-       Notes are seen only by admins and save when you click away.</p>
+    <p>Anyone can join and use the site. Chat is closed to them until an admin lets them in, and
+       they are told they are waiting on you. New accounts also pop up for every admin. Check the
+       email, the real name, the sign-up details and the note, then let them chat, or ban a fake
+       (the account is deleted and that email can never sign up again). Notes and real names are
+       seen only by admins; notes save when you click away.</p>
   </div></div>
   ${rows.length ? `<div class="adm-card"><div class="adm-scroll"><table class="adm-t">
-    <thead><tr><th class="l">Account</th><th class="l">Joined</th><th>Sessions</th><th>Hours</th><th class="l" style="min-width:260px">Note (admins only)</th><th></th></tr></thead>
-    <tbody>${rows.map(p => {
-      const ss = admSessions(p.id);
+    <thead><tr><th class="l">Account</th><th class="l">Real name</th><th class="l">Signed up</th><th>Hours</th>
+      <th class="l" style="min-width:240px">Note (admins only)</th><th></th></tr></thead>
+    <tbody>${rows.map(a => {
+      const n = ADM_NOTES[a.id] || a;
+      const same = Array.isArray(a.same_ip) ? a.same_ip : [];
+      const where = [a.country, a.user_agent ? admUA(a.user_agent) : "", a.ip].filter(Boolean).join(" · ");
       return `<tr>
-        <td class="l">${admWho(p.id)}</td>
-        <td class="l adm-mono">${esc(when(p.created_at))}</td>
-        <td>${ss.length}</td>
-        <td>${f1(admHours(ss))}</td>
-        <td class="l"><textarea class="adm-in adm-note-in" rows="3" maxlength="1000" data-admnote="${esc(p.id)}"
-            placeholder="Why it's here, for the other admins">${esc((ADM_NOTES[p.id] || {}).note || "")}</textarea>
-          <div class="adm-note-meta">${admNoteMeta(p.id)}</div></td>
+        <td class="l">${profileOf(a.id) && profileOf(a.id).id ? admWho(a.id) : `<span class="adm-who"><span class="nm">${esc(a.name || "")}<span class="adm-mail">${esc(a.email || "")}</span></span></span>`}
+          ${a.reviewed_at ? "" : `<span class="adm-flag warn" style="margin-top:4px">New</span>`}</td>
+        <td class="l">${esc(admRealName(n) || "—")}</td>
+        <td class="l"><span class="adm-mono">${esc(admWhen(a.created_at))}</span>
+          ${where ? `<div class="adm-note-meta">${esc(where)}</div>` : ""}
+          ${same.length ? `<div class="adm-note-meta" style="color:var(--a-critical)">Same IP as ${esc(same.join(", "))}</div>` : ""}</td>
+        <td>${f1(admHours(admSessions(a.id)))}</td>
+        <td class="l"><textarea class="adm-in adm-note-in" rows="3" maxlength="1000" data-admnote="${esc(a.id)}"
+            placeholder="Why it's here, for the other admins">${esc((ADM_NOTES[a.id] || {}).note || a.note || "")}</textarea>
+          <div class="adm-note-meta">${admNoteMeta(a.id)}</div></td>
         <td><div class="adm-act">
-          <button class="adm-btn sm primary" data-admapprove="${esc(p.id)}">Approve</button>
-          <button class="adm-btn sm" data-admprofile="${esc(p.id)}">View</button>
-          <button class="adm-btn sm danger" data-admkill="${esc(p.id)}">Delete</button>
+          <button class="adm-btn sm primary" data-admvet="approve" data-id="${esc(a.id)}">Let them chat</button>
+          <button class="adm-btn sm" data-admprofile="${esc(a.id)}">View</button>
+          <button class="adm-btn sm danger" data-admvet="ban" data-id="${esc(a.id)}">${PEND.armed === a.id ? "Tap again to ban" : "Ban"}</button>
         </div></td>
       </tr>`;
     }).join("")}</tbody></table></div></div>`
-  : `<div class="adm-card"><div class="pad" style="color:var(--a-ink-soft)">Nobody waiting. New accounts will show up here.</div></div>`}`;
+  : `<div class="adm-card"><div class="pad" style="color:var(--a-ink-soft)">Nobody waiting. New accounts will show up here and pop up for you.</div></div>`}`;
 }
 
 function renderAdmin() {
@@ -1090,6 +1128,7 @@ function admWire() {
   });
   $$("[data-admunmute]").forEach(b => b.onclick = () => admSetMuted(b.dataset.admunmute, false));
   $$("[data-admapprove]").forEach(b => b.onclick = () => admSetApproved(b.dataset.admapprove, true));
+  $$("[data-admvet]").forEach(b => b.onclick = () => admVet(b.dataset.admvet, b.dataset.id, "tab"));
   $$("[data-admnote]").forEach(t => t.onblur = () => admSaveNote(t.dataset.admnote, t.value));
   const cdel = $("adm-chatdelsel");
   if (cdel) cdel.onclick = () => {

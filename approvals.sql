@@ -1,4 +1,8 @@
 -- =========================================================================
+--  SUPERSEDED by vetting.sql (22 Oct 2026, evening): the front-door hold
+--  below was taken off; anyone can join, and the gate is at chat. Kept for
+--  the record; vetting.sql undoes what this sets up, so run that after it.
+-- =========================================================================
 --  approvals: an admin lets each new account in (22 Oct 2026)
 --  -----------------------------------------------------------------------
 --  Run after signup_log.sql and chat_approval.sql. Fake accounts kept
