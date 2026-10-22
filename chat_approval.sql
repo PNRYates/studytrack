@@ -177,4 +177,20 @@ begin
   return jsonb_build_object('ok', true, 'on', true);
 end $fn$;
 
+-- Notes about a member that only administrators can read or write, shown
+-- beside each account in Awaiting vetting so whoever approves sees why it was
+-- flagged and who said so.
+create table if not exists public.admin_notes (
+  user_id    uuid primary key references auth.users(id) on delete cascade,
+  note       text not null default '' check (char_length(note) <= 1000),
+  updated_by uuid references auth.users(id) on delete set null,
+  updated_at timestamptz not null default now()
+);
+alter table public.admin_notes enable row level security;
+drop policy if exists "admins only" on public.admin_notes;
+create policy "admins only" on public.admin_notes for all to authenticated
+  using (public.is_admin()) with check (public.is_admin());
+revoke all on public.admin_notes from anon;
+grant select, insert, update on public.admin_notes to authenticated;
+
 notify pgrst, 'reload schema';

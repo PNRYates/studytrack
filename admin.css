@@ -310,3 +310,7 @@ table.adm-t tbody tr:last-child td{border-bottom:0}
   .adm-bar input[type=date].adm-in{flex:1 1 0;width:auto;min-width:0}
   .adm-bar .adm-sel{flex:1 1 100%;max-width:none}
 }
+
+/* notes on accounts in Awaiting vetting */
+.adm-note-in{width:100%;min-width:240px;resize:vertical;font:inherit;font-size:12.5px;line-height:1.4}
+.adm-note-meta{font-size:11px;color:var(--a-ink-soft);margin-top:4px}

@@ -75,6 +75,35 @@ async function admLoadEmails() {
 }
 const admEmail = id => ADM_EMAIL[id] || "";
 
+/* Notes on members that only administrators can read or write (admin_notes,
+   chat_approval.sql). Shown beside an account in Awaiting vetting so whoever
+   is approving sees why it was flagged, and who last said so. */
+let ADM_NOTES = {};
+async function admLoadNotes() {
+  const { data, error } = await sb.from("admin_notes").select("user_id,note,updated_by,updated_at");
+  if (error) return;
+  ADM_NOTES = {};
+  (data || []).forEach(r => { ADM_NOTES[r.user_id] = r; });
+}
+async function admSaveNote(uid, text) {
+  const note = String(text || "").trim().slice(0, 1000);
+  const was = ADM_NOTES[uid];
+  if ((was ? was.note : "") === note) return;
+  const row = { user_id: uid, note, updated_by: UID, updated_at: new Date().toISOString() };
+  const { error } = await sb.from("admin_notes").upsert(row);
+  if (error) { toast("Could not save the note — " + error.message, 4600); return; }
+  ADM_NOTES[uid] = row;
+  toast("Note saved");
+  renderAdmin();
+}
+function admNoteMeta(uid) {
+  const n = ADM_NOTES[uid];
+  if (!n || !n.updated_at) return "";
+  const who = n.updated_by === UID ? "you" : ((profileOf(n.updated_by) || {}).display_name || "an admin");
+  return `Last edited by ${esc(who)}, ${esc(new Date(n.updated_at).toLocaleString("en-AU",
+    { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }))}`;
+}
+
 function admWho(id) {
   const p = profileOf(id);
   const mail = admEmail(id);
@@ -214,7 +243,7 @@ async function openAdmin() {
   $("adm").hidden = false;
   document.body.style.overflow = "hidden";
   renderAdmin();                      /* frame first, so it does not sit blank */
-  await Promise.all([admLoadSessions(), admLoadChat(), admLoadEmails()]);
+  await Promise.all([admLoadSessions(), admLoadChat(), admLoadEmails(), admLoadNotes()]);
   if (ADM.open) renderAdmin();
 }
 function closeAdmin() {
@@ -524,10 +553,11 @@ function admVetting() {
     <h2>Awaiting vetting</h2>
     <p>Every account made from 22 October starts here. They can log, time, plan and see the boards
        straight away, but cannot post or react in chat until you approve them. They are told they
-       are waiting on you. Check the email and the name, then approve, or delete a fake.</p>
+       are waiting on you. Check the email, the name and the note, then approve, or delete a fake.
+       Notes are seen only by admins and save when you click away.</p>
   </div></div>
   ${rows.length ? `<div class="adm-card"><div class="adm-scroll"><table class="adm-t">
-    <thead><tr><th class="l">New account</th><th class="l">Joined</th><th>Sessions</th><th>Hours</th><th></th></tr></thead>
+    <thead><tr><th class="l">Account</th><th class="l">Joined</th><th>Sessions</th><th>Hours</th><th class="l" style="min-width:260px">Note (admins only)</th><th></th></tr></thead>
     <tbody>${rows.map(p => {
       const ss = admSessions(p.id);
       return `<tr>
@@ -535,6 +565,9 @@ function admVetting() {
         <td class="l adm-mono">${esc(when(p.created_at))}</td>
         <td>${ss.length}</td>
         <td>${f1(admHours(ss))}</td>
+        <td class="l"><textarea class="adm-in adm-note-in" rows="3" maxlength="1000" data-admnote="${esc(p.id)}"
+            placeholder="Why it's here, for the other admins">${esc((ADM_NOTES[p.id] || {}).note || "")}</textarea>
+          <div class="adm-note-meta">${admNoteMeta(p.id)}</div></td>
         <td><div class="adm-act">
           <button class="adm-btn sm primary" data-admapprove="${esc(p.id)}">Approve</button>
           <button class="adm-btn sm" data-admprofile="${esc(p.id)}">View</button>
@@ -941,6 +974,7 @@ function admWire() {
   });
   $$("[data-admunmute]").forEach(b => b.onclick = () => admSetMuted(b.dataset.admunmute, false));
   $$("[data-admapprove]").forEach(b => b.onclick = () => admSetApproved(b.dataset.admapprove, true));
+  $$("[data-admnote]").forEach(t => t.onblur = () => admSaveNote(t.dataset.admnote, t.value));
   const cdel = $("adm-chatdelsel");
   if (cdel) cdel.onclick = () => {
     const ids = [...ADM.sel];
