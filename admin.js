@@ -51,7 +51,123 @@ async function adminBoot() {
   } catch (e) { /* older project, no function, no console */ }
   const row = $("s-adminrow");
   if (row) row.hidden = !IS_ADMIN;
+  if (IS_ADMIN) admPendingStart();
   return IS_ADMIN;
+}
+
+/* ========================================================= NEW ACCOUNTS
+   approvals.sql holds every new account once its email is confirmed. Each
+   one pops up here for an admin to let in or turn away, with what
+   signup_log saw when it was made. Checked on boot and every minute while
+   the tab is in view; "Later" puts one aside for 15 minutes. */
+const PEND = { list:[], snooze:{}, timer:null, busy:false, armed:null };
+function admPendingStart() {
+  if (PEND.timer) return;
+  admPendingCheck();
+  PEND.timer = setInterval(() => { if (!document.hidden) admPendingCheck(); }, 60000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && IS_ADMIN) admPendingCheck(); });
+}
+async function admPendingCheck() {
+  if (!IS_ADMIN || PEND.busy) return;
+  try {
+    const { data, error } = await sb.rpc("admin_pending");
+    if (error || !Array.isArray(data)) return;   /* approvals.sql not run yet */
+    PEND.list = data;
+  } catch (e) { return; }
+  admPendingPaint();
+}
+function admPendingNext() {
+  const now = Date.now();
+  return PEND.list.filter(a => !(PEND.snooze[a.id] > now));
+}
+function admUA(ua) {
+  ua = String(ua || "");
+  if (!ua) return "—";
+  const os = /iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) ? "iPad" : /Android/.test(ua) ? "Android"
+    : /Windows/.test(ua) ? "Windows" : /CrOS/.test(ua) ? "Chromebook" : /Mac OS X|Macintosh/.test(ua) ? "Mac"
+    : /Linux/.test(ua) ? "Linux" : "Unknown system";
+  const br = /Edg\//.test(ua) ? "Edge" : /OPR\//.test(ua) ? "Opera" : /SamsungBrowser/.test(ua) ? "Samsung Internet"
+    : /CriOS|Chrome\//.test(ua) ? "Chrome" : /FxiOS|Firefox\//.test(ua) ? "Firefox" : /Safari\//.test(ua) ? "Safari" : "Unknown browser";
+  return br + " on " + os;
+}
+function admWhen(t) {
+  if (!t) return "—";
+  const d = new Date(t);
+  return d.toLocaleString(undefined, { weekday:"short", day:"numeric", month:"short", hour:"numeric", minute:"2-digit" });
+}
+function admPendingPaint() {
+  const ov0 = $("ov-pending");
+  const queue = admPendingNext();
+  if (!queue.length) { if (ov0) ov0.classList.remove("on"); return; }
+  let ov = ov0;
+  if (!ov) {
+    ov = document.createElement("div");
+    ov.className = "ov"; ov.id = "ov-pending";
+    document.body.appendChild(ov);
+    ov.addEventListener("click", e => {
+      const b = e.target.closest("[data-pend]");
+      if (b) admPendingAct(b.dataset.pend, b.dataset.id);
+    });
+  }
+  const a = queue[0], d = a.device || {};
+  const row = (k, v) => v === undefined || v === null || v === "" ? "" :
+    `<tr><th>${esc(k)}</th><td>${esc(String(v))}</td></tr>`;
+  const same = Array.isArray(a.same_ip) ? a.same_ip : [];
+  ov.innerHTML = `<div class="modal pendsheet" role="dialog" aria-modal="true" aria-labelledby="pend-title">
+    <header>
+      <div><h2 id="pend-title">New account to approve</h2>
+        <div class="sub">${queue.length > 1 ? `1 of ${queue.length} waiting · ` : ""}They can't get in until an admin lets them.</div></div>
+      <button class="x" data-pend="later" data-id="${esc(a.id)}" aria-label="Decide later" style="font-size:22px">&times;</button>
+    </header>
+    <div class="body">
+      <div class="pendwho"><strong>${esc(a.name || "(no name)")}</strong><span>${esc(a.email || "")}</span></div>
+      ${same.length ? `<div class="msg err">Same IP address as: ${esc(same.join(", "))}</div>` : ""}
+      <table class="pendtab">
+        ${row("Signed up", admWhen(a.signed_up_at))}
+        ${row("Email confirmed", admWhen(a.confirmed_at))}
+        ${row("Sign-up attempts", a.tries)}
+        ${row("IP address", a.ip || "not recorded")}
+        ${row("Country", a.country)}
+        ${row("Browser", admUA(a.user_agent))}
+        ${row("Device", [d.platform, d.mobile === true ? "phone/tablet" : d.mobile === false ? "computer" : ""].filter(Boolean).join(", "))}
+        ${row("Screen", d.screen)}
+        ${row("Time zone", d.tz)}
+        ${row("Languages", Array.isArray(d.langs) ? d.langs.join(", ") : (a.language || ""))}
+        ${row("Touch screen", d.touch === undefined ? "" : (d.touch ? "yes" : "no"))}
+        ${row("CPU cores", d.cores)}
+        ${row("Memory", d.memory ? d.memory + " GB" : "")}
+        ${row("Connection", d.net)}
+        ${row("Full browser string", a.user_agent)}
+      </table>
+      <div class="pendgo">
+        <button type="button" class="btn ghost" data-pend="later" data-id="${esc(a.id)}">Later</button>
+        <button type="button" class="btn ghost penddeny" data-pend="deny" data-id="${esc(a.id)}">${PEND.armed === a.id ? "Tap again to delete" : "Deny"}</button>
+        <button type="button" class="btn pendok" data-pend="approve" data-id="${esc(a.id)}">Approve</button>
+      </div>
+    </div>
+  </div>`;
+  ov.classList.add("on");
+}
+async function admPendingAct(what, id) {
+  if (what === "later") {
+    PEND.snooze[id] = Date.now() + 15 * 60000; PEND.armed = null;
+    admPendingPaint(); return;
+  }
+  /* deny deletes the login, so it takes two taps (no browser confirm box) */
+  if (what === "deny" && PEND.armed !== id) { PEND.armed = id; admPendingPaint(); return; }
+  if (PEND.busy) return;
+  PEND.busy = true; PEND.armed = null;
+  const a = PEND.list.find(x => x.id === id) || {};
+  document.querySelectorAll("#ov-pending [data-pend]").forEach(b => b.disabled = true);
+  try {
+    const { data, error } = await sb.rpc("admin_review", { target: id, approve: what === "approve" });
+    if (error) { toast("Could not do that: " + error.message, 5200); }
+    else if (data === "gone") toast("Someone else already dealt with " + (a.name || "that account"));
+    else toast((a.name || "Account") + (data === "approved" ? " approved: they can sign in now" : " denied and deleted"), 3600);
+    if (!error) PEND.list = PEND.list.filter(x => x.id !== id);
+  } finally { PEND.busy = false; }
+  admPendingPaint();
+  if (what === "approve" && typeof loadAll === "function") { try { await loadAll(); renderAll(); } catch (e) {} }
 }
 
 /* ---------------------------------------------------------------- helpers */

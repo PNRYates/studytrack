@@ -715,10 +715,14 @@ function signupDevice() {
 }
 
 /* Supabase speaks in error strings. Say something a person can act on. */
+/* approvals.sql: a confirmed account waits for an admin before it can get in */
+const PENDING_MSG = "Your account is waiting for an admin to approve it. Try signing in again later.";
 function friendlyAuthError(err) {
   const m = String((err && err.message) || "").toLowerCase();
   if (m.includes("invalid login credentials"))
     return "That email and password do not match. Check both — or create an account if you have not yet.";
+  if (m.includes("user is banned") || m.includes("waiting for an admin"))
+    return PENDING_MSG;
   if (m.includes("email not confirmed"))
     return "Your email has not been confirmed yet. Click the link in the email Supabase sent you, then sign in.";
   if (m.includes("already registered") || m.includes("already been registered"))
@@ -823,8 +827,8 @@ async function doAuth() {
       const { data: d2, error: e2 } = await sb.auth.signInWithPassword({ email, password: pass });
       if (!e2 && d2 && d2.session) { await enterSession(d2.session); return; }
       switchMode("in");
-      authMsg("ok", "Account created. We've emailed " + email + " a link: click it, then come back and sign in. " +
-                    "Check your spam folder if it isn't there in a minute.");
+      authMsg("ok", "Account created. We've emailed " + email + " a link: click it to confirm your email " +
+                    "(check spam if it isn't there in a minute). An admin then approves new accounts before you can sign in.");
     } else {
       const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
       if (error && /email not confirmed/i.test(error.message || "")) { offerResend(email); return; }
@@ -968,6 +972,17 @@ async function onSession(session) {
   if (!session) { show("auth"); return; }
   UID = session.user.id;
   show("boot");
+  /* Held for approval (approvals.sql): the confirm link still hands back a
+     session, but the database refuses everything else, so say why. */
+  try {
+    const { data: access } = await sb.rpc("my_access");
+    if (access === "pending") {
+      UID = null;
+      try { await sb.auth.signOut({ scope: "local" }); } catch (e) {}
+      show("auth"); authMsg("ok", PENDING_MSG);
+      return;
+    }
+  } catch (e) { /* older project without approvals: carry on */ }
   try {
     /* a slow line that really needs longer gets it: 15 s, then 30, 45, 60 */
     await withTimeout(loadAll(), BOOT_PATIENCE_MS * Math.min(4, 1 + loadRetry), "Loading your data took too long. Trying again.");
