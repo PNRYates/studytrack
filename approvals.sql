@@ -1,9 +1,9 @@
 -- =========================================================================
 --  approvals: an admin lets each new account in (22 Oct 2026)
 --  -----------------------------------------------------------------------
---  Run after signup_log.sql. Fake accounts kept getting past the sign-up
---  rules, so a new account now waits for an admin once its email is
---  confirmed:
+--  Run after signup_log.sql and chat_approval.sql. Fake accounts kept
+--  getting past the sign-up rules, so a new account now waits for an
+--  admin once its email is confirmed:
 --
 --    * Confirming the email puts the account on hold: a row in
 --      pending_accounts, and the login banned (banned_until = infinity),
@@ -17,8 +17,9 @@
 --      realtime, which does not go through the API).
 --    * Admins open the app and get a popup per held account, with what
 --      signup_log saw (IP, country, browser, device). Approve unbans it
---      and makes the profile; Deny deletes the login. Both go in
---      admin_audit.
+--      and makes the profile, already approved for chat (so it does not
+--      wait again in Awaiting vetting); Deny deletes the login. Both go
+--      in admin_audit.
 --
 --  Admins' own addresses (is_admin's list) are never held. Accounts that
 --  existed before this file are untouched. Safe to re-run.
@@ -214,9 +215,11 @@ begin
     delete from public.pending_accounts where user_id = target;
     update auth.users set banned_until = null where id = target;
     perform set_config('app.skip_name_check', 'on', true);
-    insert into public.profiles (id, display_name)
-      select u.id, public.signup_name(u) from auth.users u where u.id = target
-      on conflict (id) do nothing;
+    /* an admin has just vetted them, so chat_approval.sql's chat gate is
+       open too: no second approval in Awaiting vetting */
+    insert into public.profiles (id, display_name, chat_approved)
+      select u.id, public.signup_name(u), true from auth.users u where u.id = target
+      on conflict (id) do update set chat_approved = true;
     perform set_config('app.skip_name_check', 'off', true);
     return 'approved';
   end if;

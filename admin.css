@@ -324,3 +324,7 @@ table.adm-t tbody tr:last-child td{border-bottom:0}
 .pendgo{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
 button.btn.pendok{background:var(--good);border-color:var(--good)}
 button.btn.ghost.penddeny{color:var(--loss)}
+
+/* notes on accounts in Awaiting vetting */
+.adm-note-in{width:100%;min-width:240px;resize:vertical;font:inherit;font-size:12.5px;line-height:1.4}
+.adm-note-meta{font-size:11px;color:var(--a-ink-soft);margin-top:4px}

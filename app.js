@@ -1254,6 +1254,7 @@ async function runRefresh(rerender, full) {
       refreshWantsAll = false;
       if (await (wantAll ? loadAll() : loadCrew())) {
         ME = DB.profiles.find(p => p.id === UID) || ME;
+        paintChatGate();
         /* After the rows, because it asks by id for exactly the ones just
            read. Failing here leaves the entries drawn without their counts,
            which is a great deal better than not drawing the entries. */
@@ -6627,6 +6628,11 @@ async function loadChatReactions() {
 
 async function sendMessageReaction(id, emoji) {
   if (!isOneEmoji(emoji)) { toast("Reactions have to be a single emoji"); return; }
+  if (ME && (ME.chat_muted || ME.chat_approved === false)) {
+    toast(ME.chat_muted ? "An administrator has muted you in chat"
+      : "Await verification from the owner before you can react. You'll be approved soon.", 4200);
+    return;
+  }
   rememberEmoji(emoji);
   const before = JSON.parse(JSON.stringify(msgRx(id)));
   const now = JSON.parse(JSON.stringify(before));
@@ -6694,9 +6700,30 @@ function msgHTML(m, prev) {
   </div>`;
 }
 
+/* A new account cannot post until an administrator approves it
+   (chat_approval.sql), and a muted one cannot post at all. The server refuses
+   either way; this says why up front, in place of a box that would fail. */
+function chatBlockText() {
+  if (!ME) return "";
+  if (ME.chat_muted) return `<b>You're muted in chat.</b> An administrator has muted you, so you can read along but not post.`;
+  if (ME.chat_approved === false) return `<b>Await verification from the owner before you have permission to chat.</b>
+    Every new account is checked by hand to keep fake accounts out, and you'll be approved soon.
+    Everything else on the site already works for you.`;
+  return "";
+}
+function paintChatGate() {
+  const gate = $("chat-gate"), box = document.querySelector("#p-chat .chatbox");
+  if (!gate || !box) return;
+  const why = chatBlockText();
+  if (gate.dataset.sig !== why) { gate.innerHTML = why; gate.dataset.sig = why; }
+  gate.hidden = !why;
+  box.hidden = !!why;
+}
+
 function paintChat() {
   const log = $("chatlog");
   if (!log) return;
+  paintChatGate();
   /* Any picture without a link yet draws as a grey box; this fetches them in
      one go and repaints, rather than a round trip per image. */
   const unsigned = CHAT.rows.map(m => m.image_path).filter(x => x && !signedFor(x));
