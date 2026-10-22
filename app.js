@@ -1178,7 +1178,7 @@ function normaliseProfiles() {
 async function loadAll() {
   const ticket = timersTicket(), readAt = Date.now();
   const since = crewSince();
-  const [pr, su, ar, se, go, ti, cd, cs, fe, tr] = await Promise.all([
+  const [pr, su, ar, se, go, ti, cd, cs, fe, tr, gate] = await Promise.all([
     sb.from("profiles").select("*"),
     sb.from("subjects").select("*").eq("user_id", UID).order("position"),
     sb.from("areas").select("*").eq("user_id", UID).order("position"),
@@ -1192,8 +1192,12 @@ async function loadAll() {
     sb.from("sessions").select(FEED_COLUMNS).order("created_at", { ascending: false }).limit(40),
     /* Errors rather than throws on a project that has not run migrate.sql yet,
        which absorbTimerReactions reads as "nobody has reacted". */
-    timerReactionsQuery()
+    timerReactionsQuery(),
+    /* Is the chat gate on? Null on a project without the flag, which keeps
+       the safe default (gated). */
+    Promise.resolve(sb.rpc("chat_gate_on")).then(r => r, () => ({ data: null }))
   ]);
+  if (gate && typeof gate.data === "boolean") CHAT_GATE_ON = gate.data;
   /* Set off before the last write landed, so it cannot know about it. Throwing
      it away costs one more read; believing it un-deletes things. */
   if (readAt <= dataTouched) return false;
@@ -6412,6 +6416,12 @@ function openImageView(url) {
 let CHAT = { loaded: false, rows: [], oldest: null, unread: 0, atBottom: true, busy: false,
              /* message_id -> { emoji: [user_id, ...] }, only for what is loaded */
              rx: {} };
+/* Whether new/unapproved accounts are held out of chat (device_tag.sql's
+   companion flag chat_gate, read every load so turning it off or back on
+   needs no deploy — just one row in app_flags). The server (chat_block) is
+   the real gate; this only decides whether the composer is shown. Defaults
+   to on, so a read that fails errs on the side of still gating. */
+let CHAT_GATE_ON = true;
 /* Mentions waiting to be seen. paintNudgeBar reads this to decide whether to
    stand aside, the same way it reads POKES. */
 let MENTIONS = [];
@@ -6648,7 +6658,7 @@ async function loadChatReactions() {
 
 async function sendMessageReaction(id, emoji) {
   if (!isOneEmoji(emoji)) { toast("Reactions have to be a single emoji"); return; }
-  if (ME && (ME.chat_muted || ME.chat_approved === false)) {
+  if (ME && (ME.chat_muted || (CHAT_GATE_ON && ME.chat_approved === false))) {
     toast(ME.chat_muted ? "An administrator has muted you in chat"
       : "Await verification from the owner before you can react. You'll be approved soon.", 4200);
     return;
@@ -6726,7 +6736,7 @@ function msgHTML(m, prev) {
 function chatBlockText() {
   if (!ME) return "";
   if (ME.chat_muted) return `<b>You're muted in chat.</b> An administrator has muted you, so you can read along but not post.`;
-  if (ME.chat_approved === false) return `<b>Await verification from the owner before you have permission to chat.</b>
+  if (CHAT_GATE_ON && ME.chat_approved === false) return `<b>Await verification from the owner before you have permission to chat.</b>
     Every new account is checked by hand to keep fake accounts out, and you'll be approved soon.
     Everything else on the site already works for you.`;
   return "";
