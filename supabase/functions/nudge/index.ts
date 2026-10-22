@@ -2,10 +2,12 @@
 //  nudge — works out who could do with encouragement, and pushes it
 //          to their devices.
 //
-//  Called two ways:
+//  Called four ways:
 //    * pg_cron every 15 minutes, carrying the x-nudge-key header
-//    * the app itself with mode:"test" and the signed-in user's token,
-//      to prove notifications reach this device
+//    * nudge_mate() in the database, mode:"poke", same header
+//    * a new account's profile appearing (signup_push.sql), mode:"admins",
+//      same header: tells the admins someone is waiting to be vetted
+//    * the app itself with mode:"test" and the signed-in user's token
 //
 //  Web push is done by hand against Web Crypto — VAPID auth (RFC 8292)
 //  and payload encryption (RFC 8291) — so there is no library in the
@@ -263,11 +265,6 @@ Deno.serve(async (req) => {
     const results = await Promise.all(subs.map(async (s) => {
       try {
         const r = await pushTo(s as Sub, {
-          // Reads "Study Track" rather than "Knox Study Track" because this
-          // file is deployed, not served from the repo, and redeploying 15 kB
-          // of hand-rolled push crypto to change one word in a test
-          // notification is not a trade worth making. Sync it next time this
-          // function is deployed for a real reason.
           title: "Study Track reminders are on",
           body: "This is what a nudge will look like.",
           kind: "test",
@@ -275,6 +272,11 @@ Deno.serve(async (req) => {
         });
         if (r.status === 404 || r.status === 410) {
           await db.from("push_subscriptions").delete().eq("id", (s as Sub).id);
+        } else if (r.status < 300) {
+          // record it, so a later "my test never arrived" is diagnosable
+          await db.from("push_subscriptions")
+            .update({ last_ok_at: new Date().toISOString(), fail_count: 0 })
+            .eq("id", (s as Sub).id);
         }
         return r.status;
       } catch (e) {
@@ -323,6 +325,40 @@ Deno.serve(async (req) => {
     /* Pokes deliberately stay out of notification_log: its unique index on
        (user_id, kind, day) would cap them at one a day. */
     return json({ sent: ok });
+  }
+
+  /* --- a message for the admins ---
+     Reached only from the database (signup_push.sql), which has already
+     written the words and picked who gets them. Every device each of them
+     has registered gets it, whatever their nudge settings: this is work,
+     not encouragement. */
+  if (body.mode === "admins") {
+    if (!VAPID_PRIVATE) return json({ error: "VAPID_PRIVATE_KEY is not set" }, 500);
+    const ids = Array.isArray(body.user_ids) ? (body.user_ids as unknown[]).map(String) : [];
+    if (!ids.length) return json({ sent: 0 });
+
+    const { data: subs } = await db.from("push_subscriptions")
+      .select("id, endpoint, p256dh, auth").in("user_id", ids);
+    const msg = {
+      title: String(body.title ?? "Study Track"),
+      body:  String(body.body ?? ""),
+      kind:  String(body.kind ?? "admins"),
+      url:   String(body.url ?? "./"),
+    };
+    let ok = 0;
+    for (const s of (subs ?? []) as Sub[]) {
+      try {
+        const r = await pushTo(s, msg);
+        if (r.status < 300) {
+          ok++;
+          await db.from("push_subscriptions")
+            .update({ last_ok_at: new Date().toISOString(), fail_count: 0 }).eq("id", s.id);
+        } else if (r.status === 404 || r.status === 410) {
+          await db.from("push_subscriptions").delete().eq("id", s.id);
+        }
+      } catch (e) { console.error("admin push failed", String(e)); }
+    }
+    return json({ sent: ok, devices: (subs ?? []).length });
   }
 
   /* --- the scheduled run --- */
