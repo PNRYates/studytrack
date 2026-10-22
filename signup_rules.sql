@@ -356,3 +356,112 @@ begin
   end if;
   return new;
 end $$;
+
+-- =========================================================================
+--  22 Oct 2026: "temp Gmail" addresses
+--  -----------------------------------------------------------------------
+--  Gmail ignores dots, so a.b.c@gmail.com is the same inbox as
+--  abc@gmail.com. "Temp Gmail" sites own one Gmail account, hand out
+--  endless dotted copies of it and show the inbox on screen, so the
+--  confirmation link works. Two fakes came in this way, both confirmed
+--  within 20 seconds: melissawhee.ler.9263.2@gmail.com and
+--  billyeyokoyamacapero.nu.0.o.pzv@gmail.com.
+--  * email_gmail_dotted: a Gmail address (before any +tag) with 3+ dots,
+--    or 2+ one-character pieces between dots, is refused. Real ones here
+--    have at most two dots and one initial ("first.r.last").
+--  * gmail_key: Gmail addresses compared without dots, +tags or the
+--    googlemail spelling, so a second account on the same Gmail inbox is
+--    refused as "already an account on that email".
+-- =========================================================================
+create or replace function public.gmail_key(addr text)
+returns text
+language sql
+immutable
+as $$
+  select case when lower(split_part(btrim(coalesce(addr, '')), '@', 2)) in ('gmail.com', 'googlemail.com')
+    then replace(split_part(split_part(lower(btrim(addr)), '@', 1), '+', 1), '.', '') || '@gmail.com'
+  end
+$$;
+
+create or replace function public.email_gmail_dotted(addr text)
+returns boolean
+language sql
+immutable
+as $$
+  with p as (select split_part(split_part(lower(btrim(coalesce(addr, ''))), '@', 1), '+', 1) l)
+  select public.gmail_key(addr) is not null
+     and (length(l) - length(replace(l, '.', '')) >= 3
+          or (select count(*) from regexp_split_to_table(l, '\.') s where length(s) = 1) >= 2)
+  from p
+$$;
+
+/* someone else already has this Gmail inbox, spelt differently */
+create or replace function public.gmail_taken(addr text, me uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select public.gmail_key(addr) is not null and exists (
+    select 1 from auth.users u
+     where u.id is distinct from me
+       and lower(split_part(u.email, '@', 2)) in ('gmail.com', 'googlemail.com')
+       and public.gmail_key(u.email) = public.gmail_key(addr))
+$$;
+revoke execute on function public.gmail_taken(text, uuid) from public, anon, authenticated;
+
+create or replace function public.signup_check(email text, name text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare c text;
+begin
+  if public.email_blocked(email) then
+    return jsonb_build_object('ok', false, 'why',
+      'That looks like a throwaway email address. Sign up with your school or personal email.');
+  end if;
+  if public.email_gibberish(email) or public.email_gmail_dotted(email) then
+    return jsonb_build_object('ok', false, 'why',
+      'That email address doesn''t look real. Use the one you actually check: we''ll email you a link to confirm it.');
+  end if;
+  if public.gmail_taken(email, null) then
+    return jsonb_build_object('ok', false, 'why',
+      'There is already an account on that Gmail address (Gmail ignores dots). Sign in instead.');
+  end if;
+  c := public.name_clash(name, null);
+  if c = '' then
+    return jsonb_build_object('ok', false, 'why', 'Use your real name, so people know who you are.');
+  elsif c is not null then
+    return jsonb_build_object('ok', false, 'why',
+      'That name is too close to someone already on Study Track. Use your full real name, or if it really is your name, ask an admin to set it for you.');
+  end if;
+  return jsonb_build_object('ok', true);
+end $$;
+revoke all on function public.signup_check(text, text) from public;
+grant execute on function public.signup_check(text, text) to anon, authenticated;
+
+create or replace function public.trg_auth_email_blocked()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if public.email_blocked(new.email) then
+    raise exception 'That looks like a throwaway email address. Sign up with your school or personal email.'
+      using errcode = 'check_violation';
+  end if;
+  if public.email_gibberish(new.email) or public.email_gmail_dotted(new.email) then
+    raise exception 'That email address doesn''t look real. Use the one you actually check.'
+      using errcode = 'check_violation';
+  end if;
+  if public.gmail_taken(new.email, new.id) then
+    raise exception 'There is already an account on that Gmail address (Gmail ignores dots). Sign in instead.'
+      using errcode = 'check_violation';
+  end if;
+  return new;
+end $$;
