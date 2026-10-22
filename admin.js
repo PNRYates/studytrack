@@ -234,6 +234,7 @@ async function admAfterWrite() {
 
 const ADM_TABS = [
   ["overview",  "◎", "Overview"],
+  ["vetting",   "✓", "Awaiting vetting"],
   ["members",   "☗", "Members"],
   ["sessions",  "▤", "Sessions"],
   ["chat",      "✽", "Chat"],
@@ -499,6 +500,51 @@ async function admSetMuted(uid, on) {
   toast(on ? "Muted" : "Unmuted");
 }
 
+/* New accounts cannot chat until approved here (chat_approval.sql). */
+const admPending = () => DB.profiles.filter(p => p.chat_approved === false)
+  .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+
+async function admSetApproved(uid, on) {
+  const { error } = await sb.from("profiles").update({ chat_approved: on }).eq("id", uid);
+  if (error) { toast("Could not change that — " + error.message, 4600); return; }
+  const p = DB.profiles.find(x => x.id === uid);
+  await admLog(on ? "chat.approve" : "chat.unapprove", uid, p ? p.display_name : null,
+    on ? "approved to chat" : "sent back to awaiting vetting", { email: admEmail(uid) || null });
+  if (p) p.chat_approved = on;
+  renderAdmin();
+  toast(on ? `${p ? p.display_name : "Member"} can chat now` : "Back to awaiting vetting");
+}
+
+function admVetting() {
+  const rows = admPending();
+  const when = t => t ? new Date(t).toLocaleString("en-AU",
+    { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "—";
+  return `
+  <div class="adm-h"><div>
+    <h2>Awaiting vetting</h2>
+    <p>Every account made from 22 October starts here. They can log, time, plan and see the boards
+       straight away, but cannot post or react in chat until you approve them. They are told they
+       are waiting on you. Check the email and the name, then approve, or delete a fake.</p>
+  </div></div>
+  ${rows.length ? `<div class="adm-card"><div class="adm-scroll"><table class="adm-t">
+    <thead><tr><th class="l">New account</th><th class="l">Joined</th><th>Sessions</th><th>Hours</th><th></th></tr></thead>
+    <tbody>${rows.map(p => {
+      const ss = admSessions(p.id);
+      return `<tr>
+        <td class="l">${admWho(p.id)}</td>
+        <td class="l adm-mono">${esc(when(p.created_at))}</td>
+        <td>${ss.length}</td>
+        <td>${f1(admHours(ss))}</td>
+        <td><div class="adm-act">
+          <button class="adm-btn sm primary" data-admapprove="${esc(p.id)}">Approve</button>
+          <button class="adm-btn sm" data-admprofile="${esc(p.id)}">View</button>
+          <button class="adm-btn sm danger" data-admkill="${esc(p.id)}">Delete</button>
+        </div></td>
+      </tr>`;
+    }).join("")}</tbody></table></div></div>`
+  : `<div class="adm-card"><div class="pad" style="color:var(--a-ink-soft)">Nobody waiting. New accounts will show up here.</div></div>`}`;
+}
+
 function renderAdmin() {
   if (!ADM.open) return;
   const flags = admFlags();
@@ -507,6 +553,7 @@ function renderAdmin() {
     `<div class="adm-navlabel">Console</div>` +
     ADM_TABS.map(([id, ic, label]) => {
       const n = id === "members" ? DB.profiles.length
+              : id === "vetting" ? (admPending().length || "")
               : id === "sessions" ? admAll().length
               : id === "chat" ? ((ADM.chat && ADM.chat.length) || "")
               : id === "announce" ? (admAnnouncements().length || "")
@@ -526,6 +573,7 @@ function renderAdmin() {
 
   const body = $("adm-body");
   if (ADM.tab === "overview")  body.innerHTML = admOverview(flags);
+  if (ADM.tab === "vetting")   body.innerHTML = admVetting();
   if (ADM.tab === "members")   body.innerHTML = admMembers();
   if (ADM.tab === "sessions")  body.innerHTML = admSessionsView();
   if (ADM.tab === "chat")      body.innerHTML = admChatView();
@@ -553,6 +601,10 @@ function admOverview(flags) {
     <p>The whole peloton at a glance. Anything that needs a decision is surfaced under Integrity —
        nothing here is ever removed automatically.</p>
   </div></div>
+
+  ${admPending().length ? `<div class="adm-warnbox"><strong>${admPending().length} new account${admPending().length === 1 ? "" : "s"} awaiting vetting.</strong>
+    They can use everything except chat until you approve them.
+    <button class="adm-btn sm primary" data-admtab="vetting" style="margin-left:8px">Review</button></div>` : ""}
 
   <div class="adm-tiles">
     <div class="adm-tile"><div class="v">${DB.profiles.length}</div><div class="k">Members</div>
@@ -663,11 +715,13 @@ function admMembers() {
         <td>${streakFor(p.id)}</td>
         <td class="l adm-mono">${last ? esc(last) : "never"}</td>
         <td class="l">${
-          !p.onboarded ? `<span class="adm-flag warn"><i class="fi">◷</i>Mid-setup</span>`
+          p.chat_approved === false ? `<span class="adm-flag warn"><i class="fi">◷</i>Awaiting vetting</span>`
+          : !p.onboarded ? `<span class="adm-flag warn"><i class="fi">◷</i>Mid-setup</span>`
           : stale ? `<span class="adm-flag mute"><i class="fi">○</i>Quiet</span>`
           : `<span class="adm-flag good"><i class="fi">●</i>Active</span>`}
           ${p.id === UID ? `<span class="adm-flag mute" style="margin-left:5px">You</span>` : ""}</td>
         <td><div class="adm-act">
+          ${p.chat_approved === false ? `<button class="adm-btn sm primary" data-admapprove="${esc(p.id)}">Approve</button>` : ""}
           <button class="adm-btn sm" data-admprofile="${esc(p.id)}">View</button>
           <button class="adm-btn sm" data-admedituser="${esc(p.id)}">Edit</button>
           ${DB.timers.some(t => t.user_id === p.id)
@@ -886,6 +940,7 @@ function admWire() {
     admSetMuted(uid, !(profileOf(uid) || {}).chat_muted);
   });
   $$("[data-admunmute]").forEach(b => b.onclick = () => admSetMuted(b.dataset.admunmute, false));
+  $$("[data-admapprove]").forEach(b => b.onclick = () => admSetApproved(b.dataset.admapprove, true));
   const cdel = $("adm-chatdelsel");
   if (cdel) cdel.onclick = () => {
     const ids = [...ADM.sel];

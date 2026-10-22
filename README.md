@@ -763,6 +763,7 @@ have reminders on, and the nudge itself is generated and sent without any human 
 | `exams_over.sql` | No session for a course that starts after its last HSC paper has finished (times from the NESA timetable in `catalogue.js`; change both together). app.js warns first, and also when you start a timer. Safe to re-run |
 | `signup_rules.sql` | No sign-up on a throwaway email domain, and no display name too close to another member's ("Max Baker official", "Maxy Baker"), at sign-up and on renames; `signup_check` / `name_check` let the app say why first. Run `blocked_email_domains.sql` after it. Safe to re-run |
 | `blocked_email_domains.sql` | The throwaway domains `signup_rules.sql` refuses (the public disposable-email-domains list, ~9,900). Re-run to refresh |
+| `chat_approval.sql` | New accounts can use everything except chat until an admin approves them (console → Awaiting vetting); they're told they're waiting on the owner. Only an admin can change `chat_approved` or `chat_muted` (a member could previously unmute themselves). Members before 22 Oct are approved. Safe to re-run |
 | `perf.sql` | Row level policies that check who you are once per query, the shared `stats_cache`, and indexes. Safe to re-run |
 | `stats.sql` | The four read-only functions behind them (`crew_clock`, `crew_subject_hours`, `kudos_board`, `reaction_board`, `badge_stats`). Safe to re-run |
 | `config.js` | Your Supabase keys and group name |
