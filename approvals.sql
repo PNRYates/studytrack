@@ -6,7 +6,7 @@
 --  admin once its email is confirmed:
 --
 --    * Confirming the email puts the account on hold: a row in
---      pending_accounts, and the login banned (banned_until = infinity),
+--      pending_accounts, and the login banned (banned_until = year 2999),
 --      so Supabase will not sign it in or refresh its token. It gets no
 --      profile, so it shows up nowhere in the app.
 --    * Confirming hands back one session before the ban can bite (the
@@ -76,7 +76,10 @@ begin
     insert into public.pending_accounts (user_id, email, name, signed_up_at)
     values (new.id, new.email, public.signup_name(new), new.created_at)
     on conflict (user_id) do nothing;
-    new.banned_until := 'infinity';
+    /* A date, not 'infinity': Supabase's auth server cannot read an infinite
+       timestamp, so 'infinity' made every sign-in by a held account fail with
+       "Database error querying schema" instead of "User is banned". */
+    new.banned_until := '2999-12-31 00:00:00+00';
   end if;
   return new;
 end $$;
