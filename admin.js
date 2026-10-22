@@ -37,7 +37,9 @@ const ADM = {
   audit:[],
   auditLoaded:false,
   annDraft:"",             /* the announcement being composed, kept across repaints */
-  annLabel:""              /* the badge it will wear; empty means the plain "Admin" */
+  annLabel:"",             /* the badge it will wear; empty means the plain "Admin" */
+  mq:"", mf:"all",         /* members search and filter */
+  editReal:null            /* the member whose real name is being edited */
 };
 
 /* Ask the database, not the browser, whether this person is an admin.
@@ -177,7 +179,7 @@ async function admVet(what, id, where) {
     if (error) { toast("Could not do that: " + error.message, 5200); return false; }
     if (data === "gone") toast("Someone else already dealt with " + name);
     else toast(data === "approved" ? name + " can chat now"
-             : data === "waiting" ? name + " stays out of chat (still in Awaiting vetting)"
+             : data === "waiting" ? name + " stays out of chat (still in Vetting)"
              : name + " banned: account deleted, email blocked", 3600);
     if (what === "wait") { if (a) a.reviewed_at = new Date().toISOString(); }
     else PEND.list = PEND.list.filter(x => x.id !== id);
@@ -250,10 +252,10 @@ function admNoteMeta(uid) {
     { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }))}`;
 }
 
-function admWho(id) {
+function admWho(id, noReal) {
   const p = profileOf(id);
   const mail = admEmail(id);
-  const real = admRealName(ADM_NOTES[id]);
+  const real = noReal ? "" : admRealName(ADM_NOTES[id]);
   return `<span class="adm-who">${admAvatar(p)}<span class="nm">${esc(p.display_name)}${
     real ? `<span class="adm-real">${esc(real)}</span>` : ""}${
     mail ? `<span class="adm-mail">${esc(mail)}</span>` : ""}</span></span>`;
@@ -411,12 +413,11 @@ async function admAfterWrite() {
 
 const ADM_TABS = [
   ["overview",  "◎", "Overview"],
-  ["vetting",   "✓", "Awaiting vetting"],
+  ["vetting",   "✓", "Vetting"],
   ["members",   "☗", "Members"],
   ["sessions",  "▤", "Sessions"],
   ["chat",      "✽", "Chat"],
-  ["announce",  "▲", "Announce"],
-  ["integrity", "⚑", "Integrity"],
+  ["integrity", "⚑", "Flags"],
   ["audit",     "⎘", "Audit log"]
 ];
 
@@ -450,11 +451,9 @@ function admChatView() {
   const selCount = ADM.sel.size;
   const muted = DB.profiles.filter(p => p.chat_muted);
 
-  return `<div class="adm-panel">
-    <div class="adm-panelhead">
-      <div><h3>Chat</h3><div class="adm-sub">The last ${ADM_CHAT_PAGE} messages, newest first.
-        Deleting is immediate and cannot be undone.</div></div>
-      <div class="adm-tools">
+  return `<div class="adm-card"><header>
+      <div><h3>Messages</h3><div class="sub">The last ${ADM_CHAT_PAGE}, newest first. Deleting cannot be undone.</div></div>
+      <div class="adm-bar" style="margin-left:auto">
         <input id="adm-q" class="adm-in" placeholder="Search messages or names" value="${esc(ADM.q)}">
         <select id="adm-who" class="adm-in">
           <option value="">Everyone</option>
@@ -462,18 +461,18 @@ function admChatView() {
         </select>
         <button class="adm-btn" id="adm-clear">Clear</button>
       </div>
-    </div>
+    </header>
 
-    ${muted.length ? `<div class="adm-bar">Muted: ${muted.map(p =>
+    ${muted.length ? `<div class="adm-bar pad">Muted: ${muted.map(p =>
       `<button class="adm-btn sm" data-admunmute="${esc(p.id)}" title="Let them post again">${esc(p.display_name)} ✕</button>`).join(" ")}</div>` : ""}
 
-    ${selCount ? `<div class="adm-bar">
+    ${selCount ? `<div class="adm-bar pad">
       <strong>${selCount}</strong> selected
       <button class="adm-btn danger" id="adm-chatdelsel">Delete selected</button>
       <button class="adm-btn" id="adm-chatclearsel">Clear selection</button>
     </div>` : ""}
 
-    <div class="adm-tablewrap"><table class="adm-table"><thead><tr>
+    <div class="adm-scroll"><table class="adm-t"><thead><tr>
       <th class="l" style="width:34px"><input type="checkbox" class="adm-ck" id="adm-selall"
         ${selCount && selCount === rows.length ? "checked" : ""}></th>
       <th class="l">When</th><th class="l">Member</th><th class="l">Message</th><th></th>
@@ -557,11 +556,8 @@ function admAnnounceView() {
 
   return `
   <div class="adm-h"><div>
-    <h2>Announce</h2>
-    <p>Posts into the room as an announcement rather than as you &mdash; its own slab in the chat log,
-       badged and unsigned. Everyone with the app open sees it at once and it stays in the history like
-       any other message. Only an administrator can post one, and the ordinary chat box cannot make
-       one at all, so the badge is never worn by accident.</p>
+    <h2>Chat</h2>
+    <p>Post an announcement, then moderate the room below.</p>
   </div></div>
 
   <div class="adm-anngrid">
@@ -569,9 +565,7 @@ function admAnnounceView() {
       <label class="adm-lbl" for="adm-annlabel">Badge &mdash; what this one is called</label>
       <input id="adm-annlabel" class="adm-in adm-annlabelin" maxlength="${ANN_LABEL_MAX}"
         placeholder="Admin" value="${esc(ADM.annLabel || "")}">
-      <div class="adm-sub" style="margin-top:6px">Left empty it reads <b>Admin</b>. Give it a word that
-        says what kind of notice this is &mdash; <b>Timetable</b>, <b>Social justice</b>, <b>Heads up</b>
-        &mdash; and that is what the room sees on this one only.</div>
+      <div class="adm-sub" style="margin-top:6px">Left empty it reads <b>Admin</b>.</div>
 
       <label class="adm-lbl" style="margin-top:18px" for="adm-anntext">What the year group will read</label>
       <div class="adm-annwrap">
@@ -583,10 +577,7 @@ function admAnnounceView() {
         <span class="adm-annleft${left < 80 ? " near" : ""}" id="adm-annleft">${left} left</span>
         <button class="adm-btn primary" id="adm-annsend"${draft.trim() ? "" : " disabled"}>Post announcement</button>
       </div>
-      <div class="adm-sub">Type <b>@</b> to tag somebody &mdash; they get the same mention bar they would
-        from a message, and you can tag yourself, which is the only way to put a contact on a notice
-        that carries no name. Sent the moment you confirm; the only way to take one back is to delete
-        it below. ${"\u2318"}/Ctrl + Enter posts it.</div>
+      <div class="adm-sub">Type <b>@</b> to tag somebody. ${"\u2318"}/Ctrl + Enter posts it.</div>
     </div></div>
 
     <div class="adm-card"><div class="pad">
@@ -697,14 +688,11 @@ function admVetting() {
   const rows = admPending();
   return `
   <div class="adm-h"><div>
-    <h2>Awaiting vetting</h2>
-    <p>Anyone can join and use the site. Chat is closed to them until an admin lets them in, and
-       they are told they are waiting on you. New accounts also pop up for every admin. Check the
-       email, the real name, the sign-up details and the note, then let them chat, or ban a fake
-       (the account is deleted and that email can never sign up again). Notes and real names are
-       seen only by admins; notes save when you click away.</p>
+    <h2>Vetting</h2>
+    <p>Accounts that can use the site but not chat. Let them chat, or ban a fake (account deleted,
+       email blocked for good). Notes save when you click away.</p>
   </div></div>
-  ${rows.length ? `<div class="adm-card"><div class="adm-scroll"><table class="adm-t">
+  ${rows.length ? `<div class="adm-card"><div class="adm-scroll"><table class="adm-t adm-stack">
     <thead><tr><th class="l">Account</th><th class="l">Real name</th><th class="l">Signed up</th><th>Hours</th>
       <th class="l" style="min-width:240px">Note (admins only)</th><th></th></tr></thead>
     <tbody>${rows.map(a => {
@@ -723,7 +711,7 @@ function admVetting() {
             placeholder="Why it's here, for the other admins">${esc((ADM_NOTES[a.id] || {}).note || a.note || "")}</textarea>
           <div class="adm-note-meta">${admNoteMeta(a.id)}</div></td>
         <td><div class="adm-act">
-          <button class="adm-btn sm primary" data-admvet="approve" data-id="${esc(a.id)}">Let them chat</button>
+          <button class="adm-btn sm go" data-admvet="approve" data-id="${esc(a.id)}">Let them chat</button>
           <button class="adm-btn sm" data-admprofile="${esc(a.id)}">View</button>
           <button class="adm-btn sm danger" data-admvet="ban" data-id="${esc(a.id)}">${PEND.armed === a.id ? "Tap again to ban" : "Ban"}</button>
         </div></td>
@@ -743,7 +731,6 @@ function renderAdmin() {
               : id === "vetting" ? (admPending().length || "")
               : id === "sessions" ? admAll().length
               : id === "chat" ? ((ADM.chat && ADM.chat.length) || "")
-              : id === "announce" ? (admAnnouncements().length || "")
               : id === "integrity" ? flags.length
               : id === "audit" ? (ADM.audit.length || "") : "";
       return `<button class="adm-nav" data-admtab="${id}" aria-current="${ADM.tab === id}">
@@ -751,7 +738,7 @@ function renderAdmin() {
         ${n !== "" ? `<span class="ct">${n}</span>` : ""}</button>`;
     }).join("") +
     `<div class="adm-railfoot">Signed in as <strong style="color:var(--a-ink)">${esc((ME && ME.display_name) || "admin")}</strong>.
-      Every removal is written to the audit log, which nobody can edit.</div>`;
+      Everything you do here goes in the audit log.</div>`;
 
   $("adm-live").innerHTML =
     `<span class="adm-dot"></span><span class="adm-livetext">PRIVILEGED SESSION</span>` +
@@ -763,8 +750,8 @@ function renderAdmin() {
   if (ADM.tab === "vetting")   body.innerHTML = admVetting();
   if (ADM.tab === "members")   body.innerHTML = admMembers();
   if (ADM.tab === "sessions")  body.innerHTML = admSessionsView();
-  if (ADM.tab === "chat")      body.innerHTML = admChatView();
-  if (ADM.tab === "announce")  body.innerHTML = admAnnounceView();
+  if (ADM.tab === "chat")      body.innerHTML = admAnnounceView() + admChatView();
+  if (ADM.tab === "announce")  { ADM.tab = "chat"; body.innerHTML = admAnnounceView() + admChatView(); }
   if (ADM.tab === "integrity") body.innerHTML = admIntegrity(flags);
   if (ADM.tab === "audit")     body.innerHTML = admAudit();
 
@@ -772,6 +759,26 @@ function renderAdmin() {
 }
 
 /* =============================================================== OVERVIEW */
+/* The few things an admin should act on, each with the button that does it. */
+function admNeedsYou(flags) {
+  const fresh = PEND.list.filter(a => !a.reviewed_at).length;
+  const waiting = admPending().length;
+  const unlinked = DB.profiles.filter(p => admLink(p.id).tag === "Not linked" && p.chat_approved !== false).length;
+  const unsure = DB.profiles.filter(p => ["Guess", "Likely"].includes(admLink(p.id).tag)).length;
+  const crit = flags.filter(f => ADM_RULES[f.rule].level === "critical").length;
+  const items = [
+    fresh ? [`<b>${fresh}</b> new account${fresh === 1 ? "" : "s"} to look at`, "vetting", "Vet"] : null,
+    !fresh && waiting ? [`<b>${waiting}</b> account${waiting === 1 ? "" : "s"} kept out of chat`, "vetting", "Open"] : null,
+    unlinked ? [`<b>${unlinked}</b> can chat but ${unlinked === 1 ? "is" : "are"} not linked to a real name`, "members:unlinked", "Link"] : null,
+    unsure ? [`<b>${unsure}</b> real-name match${unsure === 1 ? "" : "es"} still a guess`, "members:unsure", "Check"] : null,
+    flags.length ? [`<b>${flags.length}</b> flagged session${flags.length === 1 ? "" : "s"}${crit ? `, ${crit} critical` : ""}`, "integrity", "Review"] : null
+  ].filter(Boolean);
+  return `<div class="adm-card"><header><div><h3>Needs you</h3></div></header>
+    <div class="adm-needs">${items.length ? items.map(([t, go, b]) => `<div class="adm-need"><span>${t}</span>
+      <button class="adm-btn sm primary" data-admgo="${go}">${b}</button></div>`).join("")
+      : `<div class="adm-need"><span>All clear. Nothing waiting on an admin.</span></div>`}</div></div>`;
+}
+
 function admOverview(flags) {
   const today = todayISO();
   const totalH = admHours(admAll());
@@ -785,13 +792,10 @@ function admOverview(flags) {
   return `
   <div class="adm-h"><div>
     <h2>Overview</h2>
-    <p>The whole peloton at a glance. Anything that needs a decision is surfaced under Integrity —
-       nothing here is ever removed automatically.</p>
+    <p>What needs you, then how the year group is going.</p>
   </div></div>
 
-  ${admPending().length ? `<div class="adm-warnbox"><strong>${admPending().length} new account${admPending().length === 1 ? "" : "s"} awaiting vetting.</strong>
-    They can use everything except chat until you approve them.
-    <button class="adm-btn sm primary" data-admtab="vetting" style="margin-left:8px">Review</button></div>` : ""}
+  ${admNeedsYou(flags)}
 
   <div class="adm-tiles">
     <div class="adm-tile"><div class="v">${DB.profiles.length}</div><div class="k">Members</div>
@@ -868,58 +872,126 @@ function admBars(days, vals) {
 }
 
 /* ================================================================ MEMBERS */
+/* Who an account belongs to: linked to the Year 12 list or not (vetting.sql). */
+function admLink(id) {
+  const n = ADM_NOTES[id] || {};
+  if (!n.real_name) return { cls: "critical", tag: "Not linked", name: "", how: "" };
+  if (n.name_match === "none") return { cls: "critical", tag: "Not linked", name: n.real_name, how: "" };
+  if (n.name_match === "guess") return { cls: "warn", tag: "Guess", name: n.real_name, how: "guess" };
+  if (n.name_match === "likely") return { cls: "warn", tag: "Likely", name: n.real_name, how: "likely" };
+  return { cls: "good", tag: "Linked", name: n.real_name, how: "" };
+}
+function admChatState(p) {
+  if (p.chat_muted) return { cls: "critical", tag: "Muted" };
+  if (p.chat_approved === false) return { cls: "warn", tag: "Out of chat" };
+  return { cls: "good", tag: "Can chat" };
+}
+/* Inline real-name editor on Members. The roster list fills the suggestions. */
+let ADM_ROSTER = null;
+async function admLoadRoster() {
+  if (ADM_ROSTER) return;
+  const { data, error } = await sb.from("school_roster").select("code,preferred,surname,house").order("surname");
+  if (!error) ADM_ROSTER = data || [];
+}
+function admRealEditor(id) {
+  const n = ADM_NOTES[id] || {};
+  const opts = (ADM_ROSTER || []).map(r => `<option value="${esc(r.preferred + " " + r.surname + " · " + r.house)}">`).join("");
+  return `<div class="adm-realedit">
+    <input class="adm-in" id="adm-realname" list="adm-rosterlist" placeholder="Start typing a name" value="${esc(n.real_name || "")}">
+    <datalist id="adm-rosterlist">${opts}</datalist>
+    <select class="adm-sel" id="adm-realhow">
+      ${[["confirmed", "Linked (sure)"], ["likely", "Likely"], ["guess", "Guess"], ["none", "Not a student / unknown"]]
+        .map(([v, t]) => `<option value="${v}"${(n.name_match || "confirmed") === v ? " selected" : ""}>${t}</option>`).join("")}
+    </select>
+    <div class="adm-act" style="justify-content:flex-start">
+      <button class="adm-btn sm go" data-admrealsave="${esc(id)}">Save</button>
+      <button class="adm-btn sm" data-admrealcancel="1">Cancel</button>
+    </div></div>`;
+}
+async function admSaveReal(id) {
+  const name = ($("adm-realname").value || "").trim().slice(0, 200);
+  const how = $("adm-realhow").value;
+  const r = (ADM_ROSTER || []).find(x => (x.preferred + " " + x.surname + " · " + x.house) === name);
+  const row = { user_id: id, real_name: name || null, name_match: name ? how : null,
+                roster_code: r ? r.code : null, updated_by: UID, updated_at: new Date().toISOString() };
+  const { error } = await sb.from("admin_notes").upsert(row, { onConflict: "user_id" });
+  if (error) { toast("Could not save — " + error.message, 4600); return; }
+  ADM_NOTES[id] = Object.assign({}, ADM_NOTES[id] || {}, row);
+  await admLog("member.realname", id, (profileOf(id) || {}).display_name, name ? `real name set: ${name} (${how})` : "real name cleared", null);
+  ADM.editReal = null;
+  renderAdmin();
+  toast("Real name saved");
+}
+
 function admMembers() {
-  const rows = DB.profiles.slice().sort((a, b) =>
-    admHours(admSessions(b.id)) - admHours(admSessions(a.id)));
+  const q = (ADM.mq || "").trim().toLowerCase();
+  const f = ADM.mf || "all";
+  const all = DB.profiles.slice().sort((a, b) => admHours(admSessions(b.id)) - admHours(admSessions(a.id)));
+  const counts = {
+    all: all.length,
+    unlinked: all.filter(p => admLink(p.id).tag === "Not linked").length,
+    unsure: all.filter(p => ["Guess", "Likely"].includes(admLink(p.id).tag)).length,
+    out: all.filter(p => p.chat_approved === false || p.chat_muted).length
+  };
+  const rows = all.filter(p => {
+    const L = admLink(p.id);
+    if (f === "unlinked" && L.tag !== "Not linked") return false;
+    if (f === "unsure" && !["Guess", "Likely"].includes(L.tag)) return false;
+    if (f === "out" && !(p.chat_approved === false || p.chat_muted)) return false;
+    if (!q) return true;
+    return (p.display_name + " " + admEmail(p.id) + " " + L.name).toLowerCase().includes(q);
+  });
+  const chip = (id, label) => `<button class="adm-btn sm${f === id ? " primary" : ""}" data-admmf="${id}">${label} <span class="adm-ct">${counts[id]}</span></button>`;
 
   return `
   <div class="adm-h"><div>
     <h2>Members</h2>
-    <p>Everyone with an account. Editing a profile here changes how that person appears to the
-       whole peloton — their own copy updates the moment they refresh.</p>
+    <p>Everyone with an account and who they really are. Real names are from the Year 12 house list
+       and only admins see them.</p>
   </div></div>
 
-  <div class="adm-warnbox"><strong>Removing an account is final.</strong>
-    It deletes their login and cascades through every session, subject, area and goal they own.
-    There is no undo and no export first. Clearing sessions is the softer option, and keeps the
-    account.</div>
+  <div class="adm-bar">
+    ${chip("all", "Everyone")} ${chip("unlinked", "Not linked")} ${chip("unsure", "Unsure match")} ${chip("out", "Out of chat")}
+    <input class="adm-in adm-grow" id="adm-mq" type="search" placeholder="Search name, email or real name" value="${esc(ADM.mq || "")}">
+  </div>
 
-  <div class="adm-card"><div class="adm-scroll"><table class="adm-t">
+  <div class="adm-card"><div class="adm-scroll"><table class="adm-t adm-members adm-stack">
     <thead><tr>
-      <th class="l">Member</th><th class="l">Joined</th>
-      <th>Sessions</th><th>Hours</th><th>Streak</th><th class="l">Last active</th>
-      <th class="l">State</th><th></th>
+      <th class="l">Account</th><th class="l">Real name</th><th class="l">Chat</th>
+      <th>Hours</th><th class="l">Last active</th><th></th>
     </tr></thead>
     <tbody>${rows.map(p => {
       const ss = admSessions(p.id);
       const last = admLastActive(p.id);
-      const stale = last && last < addDays(todayISO(), -14);
+      const L = admLink(p.id), C = admChatState(p);
+      const timer = DB.timers.some(t => t.user_id === p.id);
+      const me = p.id === UID;
       return `<tr>
-        <td class="l">${admWho(p.id)}</td>
-        <td class="l adm-mono">${esc(admJoined(p) || "—")}</td>
-        <td>${ss.length}</td>
+        <td class="l">${admWho(p.id, true)}${me ? ` <span class="adm-flag mute">You</span>` : ""}</td>
+        <td class="l">${ADM.editReal === p.id ? admRealEditor(p.id) : `
+          <button class="adm-realbtn" data-admreal="${esc(p.id)}" title="Edit real name">
+            <span class="adm-flag ${L.cls}">${L.tag}</span>
+            <span class="adm-realcell">${L.name ? esc(L.name) : "Add real name"}</span></button>`}</td>
+        <td class="l"><span class="adm-flag ${C.cls}">${C.tag}</span></td>
         <td style="font-weight:650">${f1(admHours(ss))}</td>
-        <td>${streakFor(p.id)}</td>
         <td class="l adm-mono">${last ? esc(last) : "never"}</td>
-        <td class="l">${
-          p.chat_approved === false ? `<span class="adm-flag warn"><i class="fi">◷</i>Awaiting vetting</span>`
-          : !p.onboarded ? `<span class="adm-flag warn"><i class="fi">◷</i>Mid-setup</span>`
-          : stale ? `<span class="adm-flag mute"><i class="fi">○</i>Quiet</span>`
-          : `<span class="adm-flag good"><i class="fi">●</i>Active</span>`}
-          ${p.id === UID ? `<span class="adm-flag mute" style="margin-left:5px">You</span>` : ""}</td>
         <td><div class="adm-act">
-          ${p.chat_approved === false ? `<button class="adm-btn sm primary" data-admapprove="${esc(p.id)}">Approve</button>` : ""}
+          ${me ? "" : p.chat_approved === false
+            ? `<button class="adm-btn sm go" data-admapprove="${esc(p.id)}">Let them chat</button>`
+            : `<button class="adm-btn sm" data-admtovet="${esc(p.id)}">Send to vetting</button>`}
           <button class="adm-btn sm" data-admprofile="${esc(p.id)}">View</button>
-          <button class="adm-btn sm" data-admedituser="${esc(p.id)}">Edit</button>
-          ${DB.timers.some(t => t.user_id === p.id)
-            ? `<button class="adm-btn sm danger" data-admtimer="${esc(p.id)}">Stop timer</button>` : ""}
-          <button class="adm-btn sm danger" data-admwipe="${esc(p.id)}"
-            ${ss.length ? "" : "disabled"}>Clear sessions</button>
-          <button class="adm-btn sm danger" data-admkill="${esc(p.id)}"
-            ${p.id === UID ? "disabled title='Remove your own account from Setup instead'" : ""}>Delete</button>
+          <details class="adm-more"><summary class="adm-btn sm">More</summary><div class="adm-menu">
+            <button class="adm-btn sm" data-admedituser="${esc(p.id)}">Edit profile</button>
+            ${timer ? `<button class="adm-btn sm danger" data-admtimer="${esc(p.id)}">Stop timer</button>` : ""}
+            <button class="adm-btn sm danger" data-admwipe="${esc(p.id)}" ${ss.length ? "" : "disabled"}>Clear sessions</button>
+            <button class="adm-btn sm danger" data-admkill="${esc(p.id)}" ${me ? "disabled" : ""}>Delete account</button>
+          </div></details>
         </div></td>
       </tr>`;
-    }).join("")}</tbody></table></div></div>`;
+    }).join("") || `<tr><td colspan="6" class="l" style="color:var(--a-ink-soft)">Nobody matches.</td></tr>`}</tbody></table></div></div>
+
+  <p class="adm-sub" style="margin-top:10px">Deleting an account is final: it removes the login and everything they own.
+    Clearing sessions keeps the account. To ban someone and block their email, send them to Vetting and use Ban there.</p>`;
 }
 
 /* ================================================================ SESSIONS */
@@ -944,8 +1016,7 @@ function admSessionsView() {
   return `
   <div class="adm-h"><div>
     <h2>Sessions</h2>
-    <p>Every block logged by anyone. Editing opens the same sheet members use, so a correction
-       here looks identical to one they would have made themselves.</p>
+    <p>Every session anyone has logged.</p>
   </div></div>
 
   <div class="adm-card"><div class="pad">
@@ -1002,10 +1073,8 @@ function admIntegrity(flags) {
 
   return `
   <div class="adm-h"><div>
-    <h2>Integrity</h2>
-    <p>Entries that look off. Every one of these is a <em>signal</em>, not a verdict — a seven hour
-       Saturday before trials is real, and so is a typo'd date. Nothing here has been changed;
-       read the note, then decide.</p>
+    <h2>Flags</h2>
+    <p>Sessions that look off. A signal, not a verdict: nothing here has been changed.</p>
   </div></div>
 
   ${flags.length ? "" : `<div class="adm-empty" style="padding:44px">
@@ -1057,9 +1126,7 @@ function admAudit() {
   return `
   <div class="adm-h"><div>
     <h2>Audit log</h2>
-    <p>Every removal and every profile change made from this console, oldest at the bottom.
-       The table has no update or delete policy in <code>schema.sql</code>, so this record cannot be
-       edited or cleared by anyone — including whoever wrote it.</p>
+    <p>Everything any admin has done here. Nobody can edit or delete it.</p>
   </div></div>
 
   ${ADM.audit.length ? `<div class="adm-card"><div class="adm-scroll"><table class="adm-t">
@@ -1129,6 +1196,24 @@ function admWire() {
   $$("[data-admunmute]").forEach(b => b.onclick = () => admSetMuted(b.dataset.admunmute, false));
   $$("[data-admapprove]").forEach(b => b.onclick = () => admSetApproved(b.dataset.admapprove, true));
   $$("[data-admvet]").forEach(b => b.onclick = () => admVet(b.dataset.admvet, b.dataset.id, "tab"));
+  $$("[data-admtovet]").forEach(b => b.onclick = () => admSetApproved(b.dataset.admtovet, false));
+  $$("[data-admreal]").forEach(b => b.onclick = async () => { ADM.editReal = b.dataset.admreal; await admLoadRoster(); renderAdmin();
+    const i = $("adm-realname"); if (i) i.focus(); });
+  $$("[data-admrealsave]").forEach(b => b.onclick = () => admSaveReal(b.dataset.admrealsave));
+  $$("[data-admrealcancel]").forEach(b => b.onclick = () => { ADM.editReal = null; renderAdmin(); });
+  const rn = $("adm-realname");
+  if (rn) rn.onkeydown = e => { if (e.key === "Enter") admSaveReal(ADM.editReal); if (e.key === "Escape") { ADM.editReal = null; renderAdmin(); } };
+  $$("[data-admgo]").forEach(b => b.onclick = () => {
+    const [tab, filter] = b.dataset.admgo.split(":");
+    if (filter) ADM.mf = filter;
+    admGo(tab);
+  });
+  $$("[data-admmf]").forEach(b => b.onclick = () => { ADM.mf = b.dataset.admmf; renderAdmin(); });
+  const mq = $("adm-mq");
+  if (mq) mq.oninput = () => {
+    const at = mq.selectionStart; ADM.mq = mq.value; renderAdmin();
+    const n = $("adm-mq"); if (n) { n.focus(); n.setSelectionRange(at, at); }
+  };
   $$("[data-admnote]").forEach(t => t.onblur = () => admSaveNote(t.dataset.admnote, t.value));
   const cdel = $("adm-chatdelsel");
   if (cdel) cdel.onclick = () => {
