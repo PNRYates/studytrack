@@ -166,6 +166,8 @@ end $$;
 -- ============================================================
 --  Create a profile row automatically on signup
 -- ============================================================
+-- signup_rules.sql replaces this (since 21 Oct 2026): no profile until the
+-- email is confirmed, and the look-alike name rule at sign-up. Run it after.
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
