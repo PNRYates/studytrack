@@ -714,6 +714,36 @@ function signupDevice() {
   } catch (e) { return null; }
 }
 
+/* A random id this browser keeps, sent on sign-in so the console can tell
+   when two accounts have been used from the same browser (device_tag.sql).
+   It survives making a new account — which is the point — but a person who
+   clears site data or uses a private window simply gets a fresh one, so a
+   match is a strong hint and a miss proves nothing. */
+function deviceTag() {
+  try {
+    let id = localStorage.getItem("st.dev");
+    if (!id || id.length < 8) {
+      id = (crypto.randomUUID && crypto.randomUUID()) ||
+           (Date.now().toString(36) + Math.random().toString(36).slice(2, 12));
+      localStorage.setItem("st.dev", id);
+    }
+    return id;
+  } catch (e) { return null; }   /* storage blocked: nothing to send */
+}
+function pingDevice() {
+  const id = deviceTag();
+  if (!sb || !UID || !id) return;
+  const d = signupDevice() || {};
+  const info = {
+    ua: (d.brands && d.brands[0]) || navigator.userAgent || "",
+    screen: d.screen || "", platform: d.platform || "",
+    langs: (d.langs || []).join(",")
+  };
+  try {
+    Promise.resolve(sb.rpc("device_ping", { id, info })).then(() => {}, () => {});
+  } catch (e) { /* a project without the table: nothing to do */ }
+}
+
 /* Supabase speaks in error strings. Say something a person can act on. */
 /* vetting.sql: a banned account's login is deleted and its email refused */
 const BANNED_MSG = "This account has been banned by an admin.";
@@ -1008,6 +1038,7 @@ async function onSession(session) {
     try {
       Promise.resolve(sb.rpc("note", { kind: "open", data: {} })).then(() => {}, () => {});
     } catch (e) { /* a project without the record: nothing to do */ }
+    pingDevice();
   } catch (err) {
     console.error(err);
     if (typeof diagReport === "function") diagReport(err && err.timedOut ? "boot-timeout" : "boot-error", err && err.message);

@@ -39,7 +39,8 @@ const ADM = {
   annDraft:"",             /* the announcement being composed, kept across repaints */
   annLabel:"",             /* the badge it will wear; empty means the plain "Admin" */
   mq:"", mf:"all",         /* members search and filter */
-  editReal:null            /* the member whose real name is being edited */
+  editReal:null,           /* the member whose real name is being edited */
+  devices:[]               /* browsers used by more than one account */
 };
 
 /* Ask the database, not the browser, whether this person is an admin.
@@ -394,7 +395,7 @@ async function openAdmin() {
   $("adm").hidden = false;
   document.body.style.overflow = "hidden";
   renderAdmin();                      /* frame first, so it does not sit blank */
-  await Promise.all([admLoadSessions(), admLoadChat(), admLoadEmails(), admLoadNotes(), admPendingCheck()]);
+  await Promise.all([admLoadSessions(), admLoadChat(), admLoadEmails(), admLoadNotes(), admPendingCheck(), admLoadDevices()]);
   if (ADM.open) renderAdmin();
 }
 function closeAdmin() {
@@ -403,6 +404,57 @@ function closeAdmin() {
   document.body.style.overflow = "";
 }
 function admGo(tab) { ADM.tab = tab; ADM.sel.clear(); renderAdmin(); }
+
+/* ---------------------------------------------------------------------------
+   DEVICES
+
+   A browser keeps a random id (device_tag.sql) and sends it on every sign-in.
+   admin_devices() hands back every id more than one account has signed in
+   from, which is how sock-puppets give themselves away: the same person
+   making a fresh throwaway login each time an old one is deleted keeps the
+   same browser, so the new account lands under the old id. A match is only a
+   hint — a shared family laptop looks the same — so it reads as "worth a
+   look", never a verdict, and nothing here changes an account.
+   --------------------------------------------------------------------------- */
+async function admLoadDevices() {
+  try {
+    const { data, error } = await sb.rpc("admin_devices");
+    if (!error) ADM.devices = Array.isArray(data) ? data : (data || []);
+  } catch (e) { ADM.devices = []; }
+}
+
+function admDevicesView() {
+  const list = ADM.devices || [];
+  const head = `<div class="adm-h"><div>
+      <h2>Devices</h2>
+      <p class="adm-sub">Browsers that more than one account has signed in from. The same person
+        making new accounts keeps the same browser, so they turn up here together. A shared home
+        laptop looks the same, so treat a match as worth a look, not proof.</p>
+    </div></div>`;
+  if (!list.length) {
+    return head + `<div class="adm-card"><div class="adm-empty">
+      No browser has been used by more than one account yet. Ids are recorded from now on, as
+      each account signs in.</div></div>`;
+  }
+  const rows = list.map(d => {
+    const who = (d.who || []).map(w => {
+      const nm = w.real_name ? ` · <span class="adm-muted">${esc(w.real_name)}</span>` : "";
+      return `<div class="adm-devwho">
+        <button class="adm-devfind" data-admfind="${esc(w.name || w.email || "")}">${esc(w.name || "—")}</button>
+        <span class="adm-muted">${esc(w.email || "")}</span>${nm}
+        <span class="adm-muted">· ${w.hits || 1} visit${(w.hits || 1) === 1 ? "" : "s"}, last ${admWhen(w.last_seen)}</span>
+      </div>`;
+    }).join("");
+    return `<div class="adm-card adm-dev">
+      <header><div>
+        <h3>${d.accounts} accounts, one browser</h3>
+        <p class="adm-sub">${esc(d.screen || "?")} · ${esc(d.platform || "?")} · ${esc(d.ua || "?")}${d.langs ? " · " + esc(d.langs) : ""}</p>
+      </div><div class="adm-muted">last seen ${admWhen(d.last_seen)}</div></header>
+      <div class="adm-devwhos">${who}</div>
+    </div>`;
+  }).join("");
+  return head + rows;
+}
 
 /* every write goes through here so the panel and the app agree afterwards */
 async function admAfterWrite() {
@@ -419,6 +471,7 @@ const ADM_TABS = [
   ["sessions",  "▤", "Sessions"],
   ["chat",      "✽", "Chat"],
   ["integrity", "⚑", "Flags"],
+  ["devices",   "⧉", "Devices"],
   ["audit",     "⎘", "Audit log"]
 ];
 
@@ -733,6 +786,7 @@ function renderAdmin() {
               : id === "sessions" ? admAll().length
               : id === "chat" ? ((ADM.chat && ADM.chat.length) || "")
               : id === "integrity" ? flags.length
+              : id === "devices" ? ((ADM.devices && ADM.devices.length) || "")
               : id === "audit" ? (ADM.audit.length || "") : "";
       return `<button class="adm-nav" data-admtab="${id}" aria-current="${ADM.tab === id}">
         <span class="ic">${ic}</span>${esc(label)}
@@ -754,6 +808,7 @@ function renderAdmin() {
   if (ADM.tab === "chat")      body.innerHTML = admAnnounceView() + admChatView();
   if (ADM.tab === "announce")  { ADM.tab = "chat"; body.innerHTML = admAnnounceView() + admChatView(); }
   if (ADM.tab === "integrity") body.innerHTML = admIntegrity(flags);
+  if (ADM.tab === "devices")   body.innerHTML = admDevicesView();
   if (ADM.tab === "audit")     body.innerHTML = admAudit();
 
   admWire();
@@ -1210,6 +1265,7 @@ function admWire() {
     admGo(tab);
   });
   $$("[data-admmf]").forEach(b => b.onclick = () => { ADM.mf = b.dataset.admmf; renderAdmin(); });
+  $$("[data-admfind]").forEach(b => b.onclick = () => { ADM.mf = "all"; ADM.mq = b.dataset.admfind; admGo("members"); });
   const mq = $("adm-mq");
   if (mq) mq.oninput = () => {
     const at = mq.selectionStart; ADM.mq = mq.value; renderAdmin();
