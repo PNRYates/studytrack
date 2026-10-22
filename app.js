@@ -693,6 +693,27 @@ async function saveNewPassword(pass, again) {
   }
 }
 
+/* The device a sign-up came from, kept with the attempt in signup_log
+   (signup_log.sql) so fake accounts can be traced. The form says so. */
+function signupDevice() {
+  const n = navigator, s = screen, c = n.connection || {};
+  const ua = n.userAgentData;
+  try {
+    return {
+      platform: (ua && ua.platform) || n.platform || null,
+      mobile: ua ? ua.mobile : null,
+      brands: ua ? ua.brands.map(b => `${b.brand} ${b.version}`) : null,
+      screen: `${s.width}x${s.height}@${window.devicePixelRatio || 1}`,
+      tz: Intl.DateTimeFormat().resolvedOptions().timeZone || null,
+      langs: (n.languages || [n.language]).slice(0, 5),
+      touch: n.maxTouchPoints || 0,
+      cores: n.hardwareConcurrency || null,
+      memory: n.deviceMemory || null,
+      net: c.effectiveType || null
+    };
+  } catch (e) { return null; }
+}
+
 /* Supabase speaks in error strings. Say something a person can act on. */
 function friendlyAuthError(err) {
   const m = String((err && err.message) || "").toLowerCase();
@@ -778,7 +799,7 @@ async function doAuth() {
       /* No throwaway addresses and no look-alike names (signup_rules.sql).
          The database refuses them anyway; asking first means a plain reason
          instead of "Database error saving new user". */
-      const { data: ok } = await sb.rpc("signup_check", { email, name });
+      const { data: ok } = await sb.rpc("signup_check", { email, name, info: signupDevice() });
       if (ok && ok.ok === false) { authMsg("err", ok.why); return; }
       const { data, error } = await sb.auth.signUp({
         email, password: pass,
