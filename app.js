@@ -934,8 +934,13 @@ async function readSession() {
   sb.auth.onAuthStateChange(async (event, session) => {
     /* The ONLY thing that takes somebody to the login screen. Pressing sign
        out fires this; nothing else here does. */
+    /* Reload rather than just swap screens: a sign-out that comes from the
+       server (the login was ended or expired) used to leave every poller
+       running with UID null, hammering the database with user_id=null and
+       signed-out calls for hours. A fresh page has no timers and boots to
+       the login screen. */
     if (event === "SIGNED_OUT") {
-      UID = null; ME = null; loadSucceeded(); show("auth"); return;
+      UID = null; ME = null; show("auth"); location.reload(); return;
     }
 
     /* The other half of the recovery guard. The hash check above catches the
@@ -1094,7 +1099,10 @@ async function retryLoadNow() {
   try { data = await readSession(); }
   catch (err) { loadFailed(err); return; }
   /* Genuinely signed out — the only route to the login screen from here. */
-  if (!data || !data.session) { UID = null; ME = null; show("auth"); return; }
+  if (!data || !data.session) {
+    if (UID) { location.reload(); return; }   /* was in: drop its timers too */
+    UID = null; ME = null; show("auth"); return;
+  }
   const box = $("boot");
   if (box && box.querySelector(".bootfail")) box.innerHTML = `<div class="spin"></div>`;
   entering = null;                    /* let the same session be entered again */
