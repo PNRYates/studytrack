@@ -47,7 +47,14 @@ begin
   return new;
 end $$;
 
-alter role authenticator reset pgrst.db_pre_request;
+/* only undo approvals.sql's hook; kick.sql's kick_check uses the same slot */
+do $$ begin
+  if exists (select 1 from pg_db_role_setting s join pg_roles r on r.oid = s.setrole
+              where r.rolname = 'authenticator'
+                and 'pgrst.db_pre_request=public.gate_pending' = any(s.setconfig)) then
+    alter role authenticator reset pgrst.db_pre_request;
+  end if;
+end $$;
 notify pgrst, 'reload config';
 
 do $$
