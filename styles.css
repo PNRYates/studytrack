@@ -383,6 +383,70 @@ tr.me td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
 .tsub{font-size:12.5px;color:var(--ink-soft);margin-top:9px;min-height:19px}
 .tbtns{display:flex;gap:10px;justify-content:center;margin-top:17px;flex-wrap:wrap}
 
+/* Pomodoro: the same timer, drawn as a countdown ring for the round under
+   way. Focus is the brand's tomato, a break is calm teal, and a break that
+   has run out pulses green until you start the next round. */
+.pomo-pick{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;
+  margin:10px 0 4px}
+.pomo-pick[hidden]{display:none}
+.pomo-tog{display:inline-flex;align-items:center;gap:6px}
+.pomo-ico{font-size:14px;line-height:1}
+.pomo-sets{display:inline-flex;gap:6px;transition:opacity var(--fast) var(--ease)}
+.pomo-sets .chip{padding:5px 11px;font-size:12px}
+.pomo-tog[aria-pressed="false"] + .pomo-sets{opacity:.45}
+.pomo-tog[aria-pressed="true"]{background:var(--accent);border-color:var(--accent)}
+.pomo-tog[aria-pressed="true"]:hover{background:var(--accent-ink)}
+
+.timer.pomo .tdisp{display:none}
+.pomo-face{position:relative;width:206px;height:206px;margin:4px auto 0;--pc:var(--accent)}
+.pomo-face[hidden]{display:none}
+.pomo-ring{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg)}
+.pomo-ring circle{fill:none;stroke-width:7}
+.pr-bg{stroke:var(--surface-3)}
+.pr-fg{stroke:var(--pc);stroke-linecap:round;stroke-dasharray:339.292;stroke-dashoffset:339.292;
+  transition:stroke-dashoffset 1s linear,stroke .3s var(--ease)}
+.pomo-mid{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:5px}
+.pomo-phase{font-size:11.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--pc)}
+.pomo-left{font-size:46px;font-weight:720;letter-spacing:-.05em;line-height:1;color:var(--ink);
+  font-variant-numeric:tabular-nums}
+.pomo-dots{display:flex;gap:6px;margin-top:3px}
+.pomo-dots i{width:8px;height:8px;border-radius:50%;background:var(--surface-3);
+  box-shadow:inset 0 0 0 1.5px var(--rule)}
+.pomo-dots i.done{background:var(--pc);box-shadow:none}
+.pomo-dots i.now{background:transparent;box-shadow:inset 0 0 0 2px var(--pc)}
+.timer.ph-focus.run .pomo-dots i.now{animation:pulse 1.9s var(--ease) infinite}
+
+.timer.ph-focus:not(.run) .pomo-face{--pc:var(--ink-soft)}
+.timer.ph-break .pomo-face{--pc:var(--l5)}
+.timer.ph-ready .pomo-face{--pc:var(--good)}
+.timer.ph-ready .pomo-left{color:var(--ink-soft)}
+.timer.ph-ready .pr-fg{animation:pomoready 1.6s var(--ease) infinite}
+.timer.ph-idle .pomo-left{color:var(--ink-soft)}
+@keyframes pomoready{50%{opacity:.35}}
+/* the button that ends a break, or starts the next round, is the one to press */
+.timer.ph-break #tm-start,.timer.ph-ready #tm-start{animation:pomonudge 2.4s var(--ease) infinite}
+@keyframes pomonudge{0%,100%{box-shadow:0 0 0 0 rgba(232,64,42,0)}50%{box-shadow:0 0 0 6px rgba(232,64,42,.18)}}
+
+.pomo-off{appearance:none;border:0;background:none;font:inherit;font-size:12px;color:var(--ink-soft);
+  cursor:pointer;margin-top:12px;padding:4px 6px;border-radius:6px}
+.pomo-off:hover{color:var(--ink);text-decoration:underline}
+.pomo-off[hidden]{display:none}
+
+/* the strip: a break is not a pause, and it says so */
+.lc-pomo{font-size:12px;line-height:1;margin-left:-2px}
+.lc-break{margin-left:auto;flex:none;font-size:9.5px;font-weight:700;
+  letter-spacing:.07em;text-transform:uppercase;color:#0B7F8A;
+  background:#E6F6F7;border:1px solid #BFE6EA;border-radius:999px;padding:2px 6px}
+.nowpill.pomo-break .np-dot{background:var(--l5);animation:none}
+.nowpill.pomo-ready .np-dot{background:var(--l4)}
+@media (prefers-reduced-motion:reduce){
+  .timer.ph-break #tm-start,.timer.ph-ready #tm-start,.timer.ph-ready .pr-fg,
+  .timer.ph-focus.run .pomo-dots i.now{animation:none}
+  .pr-fg{transition:none}
+}
+
 /* =========================================================================
    ENTRIES
    ========================================================================= */
@@ -1379,3 +1443,9 @@ table.lh-t tr:last-child td{border-bottom:0}
   padding:6px 6px 6px 16px;border-radius:999px;
   font-size:13px;font-weight:600;box-shadow:var(--sh-3);white-space:nowrap}
 #updatebar span{overflow:hidden;text-overflow:ellipsis}
+
+/* pomodoro face on the smallest phones */
+@media (max-width:380px){
+  .pomo-face{width:180px;height:180px}
+  .pomo-left{font-size:40px}
+}

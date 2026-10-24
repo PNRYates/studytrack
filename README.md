@@ -806,6 +806,21 @@ and the study clock rather than one solid block before the save. `runs.sql` adds
 columns, makes `crew_clock` use them, and rebuilds them for older sessions from the record.
 Safe to re-run.
 
+### Pomodoro (`pomo.sql`)
+
+The timer card has a 🍅 Pomodoro switch for before you start: 25 minutes on and 5 off, or
+50 and 10, with a long break (15 or 20) after every fourth round. It is a way of running the
+same timer, not a second clock. A focus round is the timer running and a break is the timer
+paused, so sessions, today's hours, the strip and the six hour cap need nothing new, and a
+saved session holds the focus time only. A bell (made with Web Audio, no file), a toast, a
+buzz on phones and, in a background tab with notifications allowed, a system notification
+mark the end of each round and each break. A break never rolls into the next round by
+itself: Start waits for you. A round that runs out while the tab is asleep is counted at
+its exact length, not the time the lid was shut. The ring face replaces the clock, the pill
+and tab title count the round down, and the strip shows 🍅 and "break" instead of
+"paused". `pomo.sql` adds `live_timers.pomo`, the cycle, so a reload or another device picks
+it up. Run it before the app that sends it (already run on the live project). Safe to re-run.
+
 ### Realtime usage
 
 Supabase bills Realtime per message delivered, once per open device. Only `messages`,
