@@ -464,6 +464,12 @@ let timerLive = false;
    have just stopped. Getting this wrong resurrects a session the moment you
    finish it. */
 let timerTouched = 0, timerWrites = 0;
+/* Pomodoro (see POMODORO below), up here for the same reason: paintTimer
+   reads it, and paintTimer can run before the bottom of the file. */
+const POMO_PRESETS = { "25": { focus: 25, brk: 5, long: 15 }, "50": { focus: 50, brk: 10, long: 20 } };
+const POMO_EVERY = 4;
+const POMO_RING = 339.292;   /* 2πr for the r=54 ring in index.html */
+let pomoAudio = null, pomoWorker = null;
 function timerWriteStart() { timerWrites++; timerTouched = Date.now(); }
 function timerWriteEnd()   { timerWrites = Math.max(0, timerWrites - 1); timerTouched = Date.now(); }
 
@@ -1921,13 +1927,24 @@ function paintTimer() {
   const t = localTimer, d = $("tdisp");
   setText(d, hms(elapsedMs()));
   if (d.classList.contains("run") !== !!(t && t.running)) d.classList.toggle("run", !!(t && t.running));
-  setText($("tm-start"), t ? (t.running ? "Running" : "Resume") : "Start");
+  const p = pomoOf(t);
+  setText($("tm-start"), startWord(t));
   setProp($("tm-start"), "disabled", !!(t && t.running));
   setProp($("tm-pause"), "disabled", !(t && t.running));
   setProp($("tm-stop"), "disabled", !t);
   setProp($("tm-cancel"), "disabled", !t);
-  setText($("tsub"), t ? (t.label + (t.running ? "" : " · paused")) : "Nothing running");
-  const title = t ? (t.running ? "▶ " : "❚❚ ") + shortTime(elapsedMs()) + " · " + APP_NAME : nudgeTitle();
+  paintPomoPick();
+  paintPomoFace(t);
+  /* On a pomodoro the ring is the round, so the line under it carries the
+     session's running total instead. */
+  setText($("tsub"), !t ? (pomoPref().on ? "Rounds of focus, a bell at the end of each" : "Nothing running")
+    : p ? t.label + " · " + shortTime(elapsedMs()) + " studied"
+    : t.label + (t.running ? "" : " · paused"));
+  const title = !t ? nudgeTitle()
+    : p && p.phase === "break" ? "☕ " + shortTime(Math.ceil(pomoLeftMs(p) / 1000) * 1000) + " break · " + APP_NAME
+    : p && p.phase === "ready" ? "🔔 Break's over · " + APP_NAME
+    : p ? (t.running ? "🍅 " : "❚❚ ") + shortTime(Math.ceil(pomoLeftMs(p) / 1000) * 1000) + " · " + APP_NAME
+    : (t.running ? "▶ " : "❚❚ ") + shortTime(elapsedMs()) + " · " + APP_NAME;
   if (document.title !== title) document.title = title;
   paintFavicon();
   paintNowPill();
@@ -1935,8 +1952,9 @@ function paintTimer() {
   paintTodayChip();
   /* your own start, pause, resume or finish repaints at once; otherwise the
      minute tick carries it */
-  const mine = localTimer ? [localTimer.running ? 1 : 0, localTimer.started_at, localTimer.acc_ms].join("~") : "";
-  if (mine !== myTimerSig) { myTimerSig = mine; liveHoursTick(true); } else liveHoursTick();
+  const mine = localTimer ? [localTimer.running ? 1 : 0, localTimer.started_at, localTimer.acc_ms,
+    p ? p.phase + p.round : ""].join("~") : "";
+  if (mine !== myTimerSig) { myTimerSig = mine; liveHoursTick(true); pomoArm(); } else liveHoursTick();
 }
 
 /* ---------------------------------------------------------------------------
@@ -1999,10 +2017,19 @@ function paintNowPill() {
   const show = !!t && !onHome;
   if (el.hidden === show) el.hidden = !show;   /* only touch it when it changes */
   if (!show) return;
-  $("np-time").textContent = shortTime(elapsedMs());
-  $("np-label").textContent = t.label || "studying";
-  $("np-pause").textContent = t.running ? "Pause" : "Resume";
-  el.classList.toggle("paused", !t.running);
+  /* on a pomodoro the pill counts the round down, like the ring does */
+  const p = pomoOf(t);
+  setText($("np-time"), p && p.phase === "ready" ? "🔔"
+    : p ? shortTime(Math.ceil(pomoLeftMs(p) / 1000) * 1000) : shortTime(elapsedMs()));
+  setText($("np-label"), !p ? (t.label || "studying")
+    : p.phase === "focus" ? "🍅 " + (t.label || "Focus")
+    : p.phase === "break" ? "☕ " + (pomoIsLong(p) ? "Long break" : "Break")
+    : "Break's over");
+  setText($("np-pause"), t.running ? "Pause"
+    : p && p.phase === "break" ? "Skip break" : p && p.phase === "ready" ? "Start" : "Resume");
+  el.classList.toggle("paused", !t.running && !(p && p.phase !== "focus"));
+  el.classList.toggle("pomo-break", !!p && p.phase === "break");
+  el.classList.toggle("pomo-ready", !!p && p.phase === "ready");
 }
 
 function goToTimer() {
@@ -2048,6 +2075,7 @@ function startClock() {
   if (tickHandle) return;
   tickHandle = setInterval(() => {
     if (autoPauseIfStale()) return;      /* it repainted and pushed already */
+    pomoTick();                          /* a round or a break running out */
     paintTimer();
     /* While your timer is actually running, touch updated_at now and then so
        everybody else can tell "still going" from "closed the laptop". A paused
@@ -2118,6 +2146,7 @@ async function pushTimer(beat) {
     user_id: UID, label: localTimer.label, subject_id: localTimer.subject_id, area_id: localTimer.area_id,
     started_at: localTimer.started_at, acc_ms: localTimer.acc_ms, running: localTimer.running,
     runs: localTimer.runs || [],
+    pomo: localTimer.pomo || null,
     updated_at: new Date().toISOString()
   };
 
@@ -2159,10 +2188,305 @@ async function pushTimer(beat) {
   paintTimer();
   toast("That session was finished in another tab");
 }
+/* ---------------------------------------------------------------------------
+   POMODORO
+
+   An optional way of running the same timer, chosen when you press Start:
+   focus for 25 minutes, break for 5, and after every fourth round a long one.
+   It is not a second clock. A focus round is the timer running and a break is
+   the timer paused, so everything that already reads the timer — the strip,
+   today's total, the save sheet, the six hour cap — comes out right without
+   knowing pomodoro exists.
+
+   localTimer.pomo holds the cycle and travels with the timer: into the
+   live_timers row (pomo.sql), so a reload or another device picks it up and
+   the strip can say "break" rather than "paused", and to your other tabs on
+   the same channel as everything else.
+     focus, brk, long  minutes; every: rounds to a long break
+     round             1-based: the round under way, or the one just finished
+     phase             "focus" | "break" | "ready" (break over, waiting on you)
+     base              acc_ms when this round's focus began
+     ends              when the break finishes (ISO), during a break
+     id                fixed for the session, so each bell rings once across tabs
+
+   A break never rolls into the next round by itself. Hours that count have
+   to be hours somebody started, so when a break ends the bell rings and
+   Start waits for you.
+   --------------------------------------------------------------------------- */
+function pomoPref() {
+  try {
+    const v = JSON.parse(localStorage.getItem("st.pomo") || "null");
+    if (v && POMO_PRESETS[v.preset]) return { on: !!v.on, preset: v.preset };
+  } catch (e) { /* storage blocked: the default it is */ }
+  return { on: false, preset: "25" };
+}
+function savePomoPref(p) {
+  try { localStorage.setItem("st.pomo", JSON.stringify(p)); } catch (e) { /* this visit only, then */ }
+}
+
+function pomoOf(t)      { return (t && t.pomo && t.pomo.phase) ? t.pomo : null; }
+function pomoFocusMs(p) { return p.focus * 60000; }
+function pomoIsLong(p)  { return p.round % (p.every || POMO_EVERY) === 0; }
+function pomoBreakMs(p) { return (pomoIsLong(p) ? p.long : p.brk) * 60000; }
+/* Where this round sits in its set of four, 1-based. */
+function pomoSlot(p)    { return ((p.round - 1) % (p.every || POMO_EVERY)) + 1; }
+
+/* What is left of the phase under way, in ms. Focus is measured off the
+   timer itself, so a pause freezes it with no bookkeeping of its own. */
+function pomoLeftMs(p) {
+  if (p.phase === "focus") return Math.max(0, pomoFocusMs(p) - (elapsedMs() - p.base));
+  if (p.phase === "break") return Math.max(0, new Date(p.ends).getTime() - Date.now());
+  return 0;
+}
+function pomoFrac(p) {
+  if (p.phase === "focus") return 1 - pomoLeftMs(p) / pomoFocusMs(p);
+  if (p.phase === "break") return 1 - pomoLeftMs(p) / pomoBreakMs(p);
+  return 1;
+}
+
+function newPomo() {
+  const pr = POMO_PRESETS[pomoPref().preset];
+  return { focus: pr.focus, brk: pr.brk, long: pr.long, every: POMO_EVERY, round: 1,
+           phase: "focus", base: 0, ends: null, id: Date.now().toString(36) };
+}
+
+/* Moves the cycle on when a phase runs out. Called every second by the clock
+   and, for a tab in the background, by the alarm below. Every open tab works
+   the change out the same way; only the first to claim it rings the bell and
+   writes the row, so two tabs mean one bell. */
+function pomoTick() {
+  const t = localTimer, p = pomoOf(t);
+  if (!p) return false;
+  let kind = null;
+  if (p.phase === "focus" && t.running && pomoLeftMs(p) <= 0) {
+    /* The round is exactly its length. A tab asleep through the bell, or a
+       lid closed on it, is not extra focus, so the time past it is dropped
+       and the break is counted from when the round really ended. */
+    const over = Math.max(0, elapsedMs() - p.base - pomoFocusMs(p));
+    const endedAt = Date.now() - over;
+    t.acc_ms = p.base + pomoFocusMs(p);
+    t.running = false;
+    if (endedAt + pomoBreakMs(p) <= Date.now()) { p.phase = "ready"; p.ends = null; kind = "both"; }
+    else { p.phase = "break"; p.ends = new Date(endedAt + pomoBreakMs(p)).toISOString(); kind = "focus"; }
+  } else if (p.phase === "break" && Date.now() >= new Date(p.ends).getTime()) {
+    p.phase = "ready"; p.ends = null; kind = "break";
+  }
+  if (!kind) return false;
+  if (pomoClaim(p, kind)) { pomoAnnounce(p, kind); pushTimer(); }
+  return true;
+}
+function pomoClaim(p, kind) {
+  const mark = p.id + ":" + p.round + ":" + kind;
+  try {
+    if (localStorage.getItem("st.pomo.rang") === mark) return false;
+    localStorage.setItem("st.pomo.rang", mark);
+  } catch (e) { /* no storage to agree through: ring anyway */ }
+  return true;
+}
+
+/* The bell, a toast, a buzz on a phone, and a system notification if the
+   app is in the background and notifications are allowed. */
+function pomoAnnounce(p, kind) {
+  const next = p.round + 1;
+  const brk = Math.round(pomoBreakMs(p) / 60000);
+  let title, body;
+  if (kind === "focus") {
+    title = `Round ${p.round} done 🍅`;
+    body = pomoIsLong(p)
+      ? `That's ${p.round} rounds. Take a proper ${brk} minute break.`
+      : `Take ${brk}. The timer's paused, and Start brings you back early if you want.`;
+  } else if (kind === "both") {
+    title = `Round ${p.round} done 🍅`;
+    body = `The break's over too. Start round ${next} when you're ready.`;
+  } else {
+    title = "Break's over 🔔";
+    body = `Round ${next} is ready when you are.`;
+  }
+  pomoBell(kind === "break" ? "break" : "focus");
+  try { if (navigator.vibrate) navigator.vibrate(kind === "break" ? [160] : [220, 120, 220]); } catch (e) { /* no buzz */ }
+  toast(title + " " + body, 8000);
+  if (document.hidden && "Notification" in window && Notification.permission === "granted") {
+    const opts = { body, icon: "favicon.svg", badge: "favicon.svg", tag: "studytrack-pomo", renotify: true,
+                   data: { url: "./" } };
+    (navigator.serviceWorker ? navigator.serviceWorker.getRegistration() : Promise.resolve(null))
+      .then(reg => reg ? reg.showNotification(title, opts) : new Notification(title, opts))
+      .catch(() => { /* the bell and the tab title still say it */ });
+  }
+}
+
+/* A bell, made rather than downloaded: a few inharmonic partials struck
+   together, the high ones dying first. The end of a focus round is three
+   strikes, low to high; the end of a break is one brighter ding. The audio
+   context is woken on the press of Start, which is what lets a tab in the
+   background play it later. */
+function pomoAudioCtx() {
+  try {
+    if (!pomoAudio) {
+      const C = window.AudioContext || window.webkitAudioContext;
+      if (!C) return null;
+      pomoAudio = new C();
+    }
+    if (pomoAudio.state === "suspended") pomoAudio.resume();
+    return pomoAudio;
+  } catch (e) { return null; }
+}
+function pomoBell(kind) {
+  const ac = pomoAudioCtx();
+  if (!ac) return;
+  const strike = (at, f0, len, vol) => {
+    [[1, 1], [2.756, .45], [5.404, .2], [8.933, .08]].forEach(([r, g]) => {
+      const o = ac.createOscillator(), v = ac.createGain();
+      const end = at + len / Math.sqrt(r);
+      o.type = "sine";
+      o.frequency.value = f0 * r;
+      v.gain.setValueAtTime(0.0001, at);
+      v.gain.exponentialRampToValueAtTime(vol * g, at + 0.006);
+      v.gain.exponentialRampToValueAtTime(0.0001, end);
+      o.connect(v); v.connect(ac.destination);
+      o.start(at); o.stop(end + 0.05);
+    });
+  };
+  const t0 = ac.currentTime + 0.03;
+  if (kind === "focus") {
+    strike(t0, 587, 2.4, .26); strike(t0 + .5, 740, 2.4, .26); strike(t0 + 1, 880, 3.2, .3);
+  } else {
+    strike(t0, 1175, 1.8, .22);
+  }
+}
+
+/* A tab in the background has its clock slowed to once a minute, which
+   would leave the bell up to a minute late. A worker's timer is not slowed,
+   so it is set to go off at the end of the phase and nudges the tick then. */
+function pomoArm() {
+  const p = pomoOf(localTimer);
+  const ms = p && ((p.phase === "focus" && localTimer.running) || p.phase === "break") ? pomoLeftMs(p) : null;
+  if (ms == null && !pomoWorker) return;
+  try {
+    if (!pomoWorker) {
+      const src = "let h=null;onmessage=e=>{clearTimeout(h);if(e.data!=null)h=setTimeout(()=>postMessage(1),e.data)}";
+      pomoWorker = new Worker(URL.createObjectURL(new Blob([src], { type: "text/javascript" })));
+      pomoWorker.onmessage = () => { if (pomoTick()) paintTimer(); };
+    }
+    pomoWorker.postMessage(ms == null ? null : ms + 250);
+  } catch (e) { pomoWorker = null; /* the one-second clock still gets there */ }
+}
+
+/* Asked once, the first time somebody starts a pomodoro, since a bell in a
+   background tab is easy to miss. Settings has the full reminders story. */
+function pomoAskNotify() {
+  try {
+    if (!("Notification" in window) || Notification.permission !== "default") return;
+    if (localStorage.getItem("st.pomo.asked")) return;
+    localStorage.setItem("st.pomo.asked", "1");
+    Notification.requestPermission().catch(() => { /* declined or unsupported */ });
+  } catch (e) { /* not this browser */ }
+}
+
+/* The picker, shown only before a timer starts. */
+function paintPomoPick() {
+  const pick = $("pomo-pick");
+  if (!pick) return;
+  const hide = !!localTimer;
+  if (pick.hidden !== hide) pick.hidden = hide;
+  if (hide) return;
+  const pref = pomoPref();
+  $("pomo-tog").setAttribute("aria-pressed", String(pref.on));
+  $("pomo-sets").querySelectorAll("[data-pomo]").forEach(b =>
+    b.setAttribute("aria-pressed", String(b.dataset.pomo === pref.preset)));
+}
+if ($("pomo-tog")) {
+  $("pomo-tog").addEventListener("click", () => {
+    const pref = pomoPref(); pref.on = !pref.on; savePomoPref(pref); paintTimer();
+  });
+  $("pomo-sets").querySelectorAll("[data-pomo]").forEach(b => b.addEventListener("click", () => {
+    savePomoPref({ on: true, preset: b.dataset.pomo }); paintTimer();
+  }));
+  $("pomo-off").addEventListener("click", () => {
+    if (!localTimer || !localTimer.pomo) return;
+    localTimer.pomo = null;
+    paintTimer(); pushTimer();
+    toast(localTimer.running ? "Pomodoro off. The timer carries on as normal."
+                             : "Pomodoro off. Resume when you're ready.");
+  });
+}
+
+/* The ring face, in place of the plain clock, while a pomodoro is on — and
+   as a preview of the first round when it is switched on before starting. */
+function paintPomoFace(t) {
+  const p = pomoOf(t);
+  const preview = !t && pomoPref().on;
+  const box = $("timer"), face = $("pomo-face");
+  const on = !!p || preview;
+  if (face.hidden === on) face.hidden = !on;
+  const phase = p ? p.phase : (preview ? "idle" : "");
+  const cls = "timer" + (on ? " pomo ph-" + phase : "") + (t && t.running ? " run" : "");
+  if (box.className !== cls) box.className = cls;
+  setProp($("pomo-off"), "hidden", !p);
+  if (!on) return;
+
+  const pr = POMO_PRESETS[pomoPref().preset];
+  const q = p || { focus: pr.focus, round: 1, every: POMO_EVERY, phase: "idle" };
+  let label, left;
+  if (q.phase === "focus") {
+    label = (t.running ? "Focus" : "Focus · paused") + ` · round ${q.round}`;
+    left = pomoLeftMs(q);
+  } else if (q.phase === "break") {
+    label = pomoIsLong(q) ? "Long break" : "Break";
+    left = pomoLeftMs(q);
+  } else if (q.phase === "ready") {
+    label = "Break's over";
+    left = q.focus * 60000;
+  } else {
+    label = `${pr.focus} on · ${pr.brk} off`;
+    left = pr.focus * 60000;
+  }
+  setText($("pomo-phase"), label);
+  /* rounded up, so the last second shows 00:01 and the bell lands on 00:00 */
+  setText($("pomo-left"), shortTime(Math.ceil(left / 1000) * 1000));
+  const frac = q.phase === "idle" ? 0 : pomoFrac(q);
+  const ring = $("pr-fg");
+  /* The ring glides second to second, but a new phase starts it over: that
+     is a jump, not a second of it sweeping backwards round the dial. */
+  const ph = q.phase + (p ? p.round : "");
+  if (ring.dataset.ph !== ph) {
+    ring.dataset.ph = ph;
+    ring.style.transition = "none";
+    requestAnimationFrame(() => requestAnimationFrame(() => { ring.style.transition = ""; }));
+  }
+  setProp(ring.style, "strokeDashoffset", String((POMO_RING * (1 - frac)).toFixed(2)));
+  /* an empty arc still draws its round end as a dot at twelve o'clock */
+  setProp(ring.style, "opacity", frac > 0.002 ? "" : "0");
+
+  const slot = q.phase === "idle" ? 0 : pomoSlot(q), every = q.every || POMO_EVERY;
+  const dots = Array.from({ length: every }, (_, i) => {
+    const n = i + 1;
+    const c = n < slot || (n === slot && q.phase !== "focus") ? "done" : n === slot ? "now" : "";
+    return `<i class="${c}"></i>`;
+  }).join("");
+  const dbox = $("pomo-dots");
+  if (dbox.dataset.sig !== dots) { dbox.innerHTML = dots; dbox.dataset.sig = dots; }
+}
+
+/* The words on the Start button, which mean something different on a
+   pomodoro: it ends a break early, or begins the next round. */
+function startWord(t) {
+  const p = pomoOf(t);
+  if (!t) return pomoPref().on ? "Start focus" : "Start";
+  if (t.running) return "Running";
+  if (p && p.phase === "break") return "Skip break";
+  if (p && p.phase === "ready") return "Start round " + (p.round + 1);
+  return "Resume";
+}
+
 $("tm-start").addEventListener("click", async () => {
   if (localTimer) {
     if (localTimer.running) return;     /* already going: a second press must not restart the stretch */
     closeOpenRun(localTimer);
+    /* the end of a break, early or on time: the next round begins here */
+    const p = pomoOf(localTimer);
+    if (p && p.phase !== "focus") {
+      p.round += 1; p.phase = "focus"; p.base = localTimer.acc_ms; p.ends = null;
+    }
     localTimer.running = true; localTimer.started_at = new Date().toISOString();
   }
   else {
@@ -2177,8 +2501,11 @@ $("tm-start").addEventListener("click", async () => {
          looking at. CUR follows the date picker on Today, so starting a timer
          after scrolling back through last week used to file the hours you are
          sitting there doing into last week. A stopwatch measures now. */
-      started_at: new Date().toISOString(), running: true, day: todayISO(), runs: [] };
+      started_at: new Date().toISOString(), running: true, day: todayISO(), runs: [],
+      pomo: pomoPref().on ? newPomo() : null };
   }
+  /* inside the press, the one moment a browser lets a page wake its audio */
+  if (pomoOf(localTimer)) { pomoAudioCtx(); pomoAskNotify(); }
   lastBeat = Date.now(); paintTimer(); startClock(); pushTimer();
 });
 $("tm-pause").addEventListener("click", () => {
@@ -2659,7 +2986,8 @@ function paintLive(force) {
            ((r.kudos || []).indexOf(UID) > -1 ? "k" : (r.sus || []).indexOf(UID) > -1 ? "s" : "");
   };
   const sig = all.map(t => [t.user_id, t.running ? 1 : 0, t.label || "",
-                            t.started_at, t.acc_ms, rxSig(t)].join("~")).join("|");
+                            t.started_at, t.acc_ms, rxSig(t),
+                            pomoOf(t) ? pomoOf(t).phase : ""].join("~")).join("|");
   const rebuild = force === true || sig !== liveSig;
   liveSig = sig;
 
@@ -2690,13 +3018,20 @@ function paintLive(force) {
     const p = profileOf(t.user_id);
     const w = splitLabel(t.label);
     const mine = t.user_id === UID;
+    const pm = pomoOf(t);
+    /* a pomodoro break is a planned stop, not somebody wandering off */
+    const state = t.running ? '<span class="dot"></span>'
+      : pm && pm.phase === "break" ? '<span class="lc-break">break</span>'
+      : '<span class="lc-paused">paused</span>';
     return `<div class="livecard${mine ? " self" : ""}${t.running ? "" : " paused"} person"
-      data-profile="${esc(t.user_id)}" title="See ${esc(p.display_name)}'s full profile"
+      data-profile="${esc(t.user_id)}" title="See ${esc(p.display_name)}'s full profile${
+        pm ? " · on a pomodoro, round " + pm.round : ""}"
       style="--lc-subj:${esc(subjectTint(w.subject))}">
       <div class="lc-top">
         ${avatarHTML(p, "sm")}
         <span class="lc-who">${esc(mine ? "You" : p.display_name)}</span>
-        ${t.running ? '<span class="dot"></span>' : '<span class="lc-paused">paused</span>'}
+        ${pm ? '<span class="lc-pomo" aria-label="Pomodoro">🍅</span>' : ""}
+        ${state}
       </div>
       <div class="lc-time" data-clock="${esc(t.user_id)}">${hms(msOf(t))}</div>
       <div class="lc-subj">${esc(w.subject)}</div>
@@ -3376,7 +3711,8 @@ function profileLiveHTML(id) {
   const began = new Date(t.started_at);
   return `<div class="pflive${t.running ? "" : " paused"}" style="--lc-subj:${esc(subjectTint(w.subject))}">
     <div class="pfl-top">
-      <span class="pfl-tag">${t.running ? `<i class="dot"></i>On the clock now` : "Paused"}</span>
+      <span class="pfl-tag">${t.running ? `<i class="dot"></i>On the clock now${pomoOf(t) ? " · 🍅 round " + pomoOf(t).round : ""}`
+        : pomoOf(t) && pomoOf(t).phase === "break" ? "🍅 Pomodoro break" : "Paused"}</span>
       <span class="pfl-since">started ${esc(began.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }))}</span>
     </div>
     <div class="pfl-time" data-pfclock="${esc(id)}">${hms(ms)}</div>

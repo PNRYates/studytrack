@@ -260,8 +260,29 @@
               <div><label class="fl" for="tm-subj">Subject</label><select id="tm-subj"></select></div>
               <div><label class="fl" for="tm-area">Area</label><select id="tm-area"></select></div>
             </div>
-            <div class="timer">
+            <!-- Pomodoro is chosen when you start, so this only shows with nothing running -->
+            <div class="pomo-pick" id="pomo-pick">
+              <button type="button" class="chip pomo-tog" id="pomo-tog" aria-pressed="false"
+                title="Work in focus rounds with short breaks, and a bell at the end of each">
+                <span class="pomo-ico" aria-hidden="true">🍅</span>Pomodoro</button>
+              <span class="pomo-sets" id="pomo-sets" role="group" aria-label="Round length">
+                <button type="button" class="chip" data-pomo="25" aria-pressed="true">25 · 5</button>
+                <button type="button" class="chip" data-pomo="50" aria-pressed="false">50 · 10</button>
+              </span>
+            </div>
+            <div class="timer" id="timer">
               <div class="tdisp" id="tdisp">00:00:00</div>
+              <div class="pomo-face" id="pomo-face" hidden>
+                <svg class="pomo-ring" viewBox="0 0 120 120" aria-hidden="true">
+                  <circle class="pr-bg" cx="60" cy="60" r="54"/>
+                  <circle class="pr-fg" id="pr-fg" cx="60" cy="60" r="54"/>
+                </svg>
+                <div class="pomo-mid">
+                  <div class="pomo-phase" id="pomo-phase">Focus</div>
+                  <div class="pomo-left" id="pomo-left" role="timer" aria-live="off">25:00</div>
+                  <div class="pomo-dots" id="pomo-dots" aria-hidden="true"></div>
+                </div>
+              </div>
               <div class="tsub" id="tsub">Nothing running</div>
               <div class="tbtns">
                 <button class="btn go" id="tm-start">Start</button>
@@ -269,6 +290,7 @@
                 <button class="btn stop" id="tm-stop" disabled>Finish and log</button>
                 <button class="btn ghost" id="tm-cancel" disabled>Discard</button>
               </div>
+              <button type="button" class="pomo-off" id="pomo-off" hidden>Turn pomodoro off and keep timing</button>
             </div>
           </div>
         </div>
