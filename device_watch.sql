@@ -86,3 +86,72 @@ revoke execute on function public.trg_device_watch() from public, anon, authenti
 drop trigger if exists device_log_watch on public.device_log;
 create trigger device_log_watch after insert on public.device_log
   for each row execute function public.trg_device_watch();
+
+-- ---------- at the sign-up form (added 24 Oct) ----------
+--  The device_log check only runs once the app has loaded in a new
+--  account, so a fake that is banned quickly never trips it. Every sign-up
+--  attempt already lands in signup_log with its screen, languages and IP,
+--  so the same watch list is checked there too, on the first attempt,
+--  blocked or not, before any account exists. A third kind, 'ip', matches
+--  the attempt's address exactly (safe here: only sign-ups are checked, not
+--  the members who already use that connection). One push per 10 minutes,
+--  however many attempts; every attempt still gets its own audit row.
+alter table public.watched_devices drop constraint if exists watched_devices_kind_check;
+alter table public.watched_devices add constraint watched_devices_kind_check
+  check (kind in ('device_id', 'fingerprint', 'ip'));
+
+create or replace function public.trg_signup_watch()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  scr    text := coalesce(new.client->>'screen', '');
+  hit    text;
+  recent boolean;
+  secret text;
+  admins uuid[];
+begin
+  select string_agg(coalesce(w.note, w.kind), ' + ') into hit
+    from public.watched_devices w
+   where (w.kind = 'ip' and w.key = new.ip)
+      or (w.kind = 'fingerprint'
+          and scr like split_part(w.key, '|', 1) || '%'
+          and coalesce(new.client->'langs', '[]'::jsonb) ? split_part(w.key, '|', 2));
+  if hit is null then return new; end if;
+
+  select exists (select 1 from public.admin_audit
+                  where action = 'signup.watch' and created_at > now() - interval '10 minutes') into recent;
+
+  insert into public.admin_audit (actor_id, actor_name, action, target_user, target_name, summary)
+  values (null, 'device watch', 'signup.watch', null, new.name,
+          concat_ws(' · ', hit, new.email, case when new.ok then 'allowed' else 'blocked: ' || new.why end, new.ip, scr));
+
+  if recent then return new; end if;
+  select cron_secret into secret from public.notification_config where id = 1;
+  select coalesce(array_agg(u.id), '{}') into admins from auth.users u where public.admin_email(u.email);
+  if secret is null or cardinality(admins) = 0 then return new; end if;
+
+  begin
+    perform net.http_post(
+      url     := 'https://jebvozocpxhiplvvjobl.supabase.co/functions/v1/nudge',
+      body    := jsonb_build_object(
+                   'mode', 'admins',
+                   'user_ids', to_jsonb(admins),
+                   'title', 'Watched device signing up: ' || left(coalesce(new.name, '?'), 50),
+                   'body', concat_ws(' · ', new.email, hit, case when new.ok then 'allowed through' else 'blocked' end),
+                   'kind', 'signupwatch-' || new.id,
+                   'url', './'),
+      headers := jsonb_build_object('Content-Type', 'application/json', 'x-nudge-key', secret),
+      timeout_milliseconds := 20000
+    );
+  exception when others then null;
+  end;
+  return new;
+end $$;
+revoke execute on function public.trg_signup_watch() from public, anon, authenticated;
+
+drop trigger if exists signup_log_watch on public.signup_log;
+create trigger signup_log_watch after insert on public.signup_log
+  for each row execute function public.trg_signup_watch();
