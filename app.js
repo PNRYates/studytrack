@@ -6847,7 +6847,7 @@ const EMOJI_LIBRARY = [
   ["Study", "📚 📖 📝 ✏️ 🖊️ 📎 📌 📐 📏 🧮 💻 ⌨️ 🖥️ 📱 ⏰ ⏳ ⌛ 💡 📈 📉 📊 🗂️ 📅 🎓 🏫 🧪 🔬 🔭 💯 ✅ ❌ ❓ ❗ 💤 🔒 🔑 🎯 🏆 🥇 🥈 🥉 🏅 👑 💎 💰 💸 🧾"],
   ["Food", "☕ 🍵 🧃 🥤 🧋 🍕 🍔 🍟 🌭 🌮 🥩 🍳 🥚 🍞 🥐 🍩 🍪 🎂 🍫 🍿 🍎 🍌 🍉 🍇 🍜 🍣 🧂"],
   ["Sport & fun", "⚽ 🏀 🏈 ⚾ 🎾 🏐 🏉 🎱 🏓 🏸 🥊 🏋️ 🏊 🤽 🚴 ⛳ 🏄 🎮 🎲 🎧 🎵 🎶 🎤 🎸 🥁 🎉 🎊 🎈 🎁 🪩"],
-  ["Symbols", "❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 ❤️‍🔥 💢 💥 💫 💦 💨 🕳️ 💬 💭 🔥 ✨ ⭐ 🌟 ⚡ ☀️ 🌧️ ❄️ 🌈 🌊 🚀 🛸 🚨 ⚠️ 🚫 ⛔ 📢 🔔 🏁 🚩 🆗 🆒 🆙 🔝"],
+  ["Symbols", "❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 ❤️‍🔥 💢 💥 💫 💦 💨 🕳️ 💬 💭 🔥 ✨ ⭐ 🌟 ⚡ ☀️ 🌧️ ❄️ 🌊 🚀 🛸 🚨 ⚠️ 🚫 ⛔ 📢 🔔 🏁 🚩 🆗 🆒 🆙 🔝"],
   ["Flags", "🇦🇺 🇳🇿 🇬🇧 🇺🇸 🇨🇳 🇮🇳 🇰🇷 🇯🇵 🇮🇹 🇬🇷 🇱🇧 🇵🇭 🇻🇳 🇫🇷 🇩🇪 🇧🇷 🏴󠁧󠁢󠁥󠁮󠁧󠁿"]
 ];
 
@@ -6855,6 +6855,8 @@ const EMOJI_LIBRARY = [
    flag, never letters or digits. The same rule as is_reaction_emoji(). */
 function isOneEmoji(str) {
   const t = String(str || "").trim();
+  /* 🌈 and the 🏳️‍🌈 flag built on it are not reactions here (25 Oct 2026) */
+  if (/\u{1F308}/u.test(t)) return false;
   if (!t || t.length > 24 || /[\p{L}\p{N}\s]/u.test(t.replace(/[\u{E0020}-\u{E007F}]/gu, ""))) return false;
   if (!/\p{Extended_Pictographic}|\p{Regional_Indicator}/u.test(t)) return false;
   if (typeof Intl !== "undefined" && Intl.Segmenter) {

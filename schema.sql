@@ -2041,6 +2041,9 @@ as $$
           or e ~ '\u200D'
           or e ~ '[\U000E0020-\U000E007F]'
           or (char_length(e) = 3 and e ~ '[\U0001F3FB-\U0001F3FF]'))
+     -- \uD83C\uDF08 and anything built on it, the \uD83C\uDFF3\uFE0F\u200D\uD83C\uDF08 flag included (25 Oct 2026):
+     -- removed as reactions by the admins.
+     and e !~ '\U0001F308'
 $$;
 
 grant execute on function public.is_reaction_emoji(text) to authenticated;
