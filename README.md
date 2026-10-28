@@ -809,6 +809,19 @@ and the study clock rather than one solid block before the save. `runs.sql` adds
 columns, makes `crew_clock` use them, and rebuilds them for older sessions from the record.
 Safe to re-run.
 
+### The HSC is done (`celebrate.js`, `celebrate.css`)
+
+From the moment your last paper ends, confetti rains over the whole app, on every tab, for
+as long as you keep coming back. The first time, there's a card with your Study Track totals
+and a big pop of confetti. Today's countdown becomes a celebration card, the masthead gets a
+🎓 HSC done badge, and the browser tab gets a 🎉. "Your last paper" is the latest one on your
+own exam list (`plnExams` in `plan.js`, the same list as the countdown and the calendar), or
+the end of the whole HSC if your list has none. The app checks every 15 seconds, so if it's
+open it starts at the bell. The confetti is one canvas under every dialog, never clickable,
+sized to the screen, and it draws nothing while the tab is out of view. A faint 🎊 in the
+bottom-left corner (and a link on the card) turns it off or back on for that device; a device
+set to reduce motion starts with it off. Nothing on the server.
+
 ### Pomodoro (`pomo.sql`)
 
 The timer card has a 🍅 Pomodoro switch for before you start: 25 minutes on and 5 off, or

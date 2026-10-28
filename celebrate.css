@@ -1,0 +1,53 @@
+/* =========================================================================
+   THE HSC IS DONE — see celebrate.js
+   ========================================================================= */
+
+/* The rain: over the page and the sticky header (60), under every dialog
+   (80 and up), the pill (110) and toasts (120). Never takes a click. */
+#cf-rain{position:fixed;inset:0;width:100vw;height:100vh;z-index:70;pointer-events:none}
+
+/* The way out, small and faint until you go looking for it */
+.cf-tog{position:fixed;left:14px;bottom:14px;z-index:111;width:30px;height:30px;border-radius:50%;
+  display:grid;place-items:center;font-size:15px;line-height:1;cursor:pointer;
+  background:var(--surface);border:1px solid var(--rule);box-shadow:var(--sh-1);
+  opacity:.38;transition:opacity var(--fast) var(--ease),transform var(--fast) var(--ease)}
+.cf-tog:hover,.cf-tog:focus-visible{opacity:1;transform:scale(1.08);outline:none}
+.cf-tog:focus-visible{box-shadow:0 0 0 3px rgba(232,64,42,.32)}
+.cf-tog.off{filter:grayscale(1);opacity:.22}
+.cf-tog[hidden]{display:none}
+/* the running-session pill spans the bottom on phones */
+@media (max-width:620px){
+  body:has(#nowpill:not([hidden])) .cf-tog{bottom:76px}
+}
+
+/* The masthead: a gold mortarboard where everyone can see it */
+.hscbadge{align-self:center;flex:none;font-size:11.5px;font-weight:700;letter-spacing:.01em;
+  color:#3A2A00;background:linear-gradient(135deg,#FFE08A,#F4B740);
+  border-radius:999px;padding:4px 10px;box-shadow:0 0 0 1px rgba(255,255,255,.18),0 4px 14px rgba(244,183,64,.35);
+  animation:hscshine 3.2s var(--ease) infinite}
+.hscbadge[hidden]{display:none}
+@keyframes hscshine{0%,100%{filter:none}50%{filter:brightness(1.12) saturate(1.1)}}
+@media (max-width:620px){ .hscbadge{display:none} }
+
+/* Today: the countdown, now the celebration */
+.hsc-done .xc-hero{background:linear-gradient(135deg,#12855C 0%,#19A974 45%,#0FA3B1 100%)}
+.hsc-done .xc-big{font-size:44px}
+.hd-side{justify-content:center;gap:14px;
+  background:linear-gradient(180deg,rgba(25,169,116,.06),transparent 70%)}
+.hd-head{font-size:17px;font-weight:700;color:var(--ink);letter-spacing:-.01em}
+.hd-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.hd-stat{background:var(--surface);border:1px solid var(--rule);border-radius:12px;padding:10px 12px;text-align:center}
+.hd-stat b{display:block;font-size:24px;font-weight:800;letter-spacing:-.03em;color:var(--good);
+  font-variant-numeric:tabular-nums;line-height:1.1}
+.hd-stat span{display:block;font-size:11.5px;color:var(--ink-soft);margin-top:3px}
+.hd-foot{font-size:12.5px;color:var(--ink-mid);display:flex;flex-wrap:wrap;gap:4px 12px;align-items:baseline}
+.hd-cf{appearance:none;border:0;background:none;font:inherit;font-size:11.5px;color:var(--ink-soft);
+  cursor:pointer;padding:0;text-decoration:underline;text-underline-offset:2px;margin-left:auto}
+.hd-cf:hover{color:var(--ink)}
+
+/* The first-time card borrows play.css's celebration, with a bigger hat */
+.hsc-art{font-size:72px;line-height:1;animation:plpop .7s cubic-bezier(.2,1.5,.3,1) both .1s}
+
+@media (prefers-reduced-motion:reduce){
+  .hscbadge,.hsc-art{animation:none}
+}

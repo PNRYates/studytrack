@@ -1941,7 +1941,7 @@ function paintTimer() {
   setText($("tsub"), !t ? (pomoPref().on ? "Rounds of focus, a bell at the end of each" : "Nothing running")
     : p ? t.label + " · " + shortTime(elapsedMs()) + " studied"
     : t.label + (t.running ? "" : " · paused"));
-  const title = !t ? nudgeTitle()
+  const title = !t ? (typeof hscTitle === "function" ? hscTitle(nudgeTitle()) : nudgeTitle())
     : p && p.phase === "break" ? "☕ " + shortTime(Math.ceil(pomoLeftMs(p) / 1000) * 1000) + " break · " + APP_NAME
     : p && p.phase === "ready" ? "🔔 Break's over · " + APP_NAME
     : p ? (t.running ? "🍅 " : "❚❚ ") + shortTime(Math.ceil(pomoLeftMs(p) / 1000) * 1000) + " · " + APP_NAME
@@ -2968,6 +2968,8 @@ function renderAll() {
   /* the exam calendar, countdown and lead-up chart live in plan.js */
   if (typeof planRender === "function") planRender();
   if (typeof believeRender === "function") believeRender();
+  /* confetti once your last paper is done: celebrate.js */
+  if (typeof celebrateRender === "function") celebrateRender();
   try { paintNudgeBar(); } catch (e) { console.error(e); }
   try { paintReminders(); } catch (e) { console.error(e); }
   const tot = crewTotals();
@@ -3218,6 +3220,13 @@ function paintCountdown() {
   /* Your own next paper, from plan.js, when you have one. This card is the
      year group's fallback for anybody who has not added subjects yet. */
   if (typeof planPaintCountdown === "function") { try { if (planPaintCountdown()) return; } catch (e) { console.error(e); } }
+  /* no papers of your own, and the whole HSC is over: celebrate.js */
+  if (typeof hscDone === "function" && hscDone()) {
+    const html = hscDoneCardHTML(0);
+    if (box.dataset.sig !== html) { box.innerHTML = html; box.dataset.sig = html; }
+    box.hidden = false;
+    return;
+  }
   const live = KEY_DATES().map(d => Object.assign({}, d, { left: daysUntil(d.on) }))
                          .filter(d => d.left >= 0)
                          .sort((a, b) => a.left - b.left);
