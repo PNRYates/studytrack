@@ -389,9 +389,11 @@ function planPaintCountdown() {
   if (!X.list.length) { box.dataset.sig = ""; return false; }   /* no exams: app.js keeps its own */
   const today = todayISO();
   if (!ahead.length) {
-    box.dataset.sig = "";
-    box.innerHTML = `<div class="xc xc-done"><div class="xc-hero"><div class="xc-k">That's the HSC</div>
+    /* the celebration, with your totals, lives in celebrate.js */
+    const html = typeof hscDoneCardHTML === "function" ? hscDoneCardHTML(X.list.length)
+      : `<div class="xc xc-done"><div class="xc-hero"><div class="xc-k">That's the HSC</div>
       <div class="xc-big" style="font-size:30px">Done 🎓</div><div class="xc-what">All ${X.list.length} of your papers are behind you.</div></div></div>`;
+    if (box.dataset.sig !== html) { box.innerHTML = html; box.dataset.sig = html; }
     box.hidden = false;
     return true;
   }
