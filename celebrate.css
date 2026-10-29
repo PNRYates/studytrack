@@ -51,3 +51,13 @@
 @media (prefers-reduced-motion:reduce){
   .hscbadge,.hsc-art{animation:none}
 }
+
+/* Beside a name, wherever people see each other (hscTag): the peloton, the
+   today list, the live strip, a profile, chat. Same gold as the masthead. */
+.hsc-tag{display:inline-flex;align-items:center;flex:none;margin-left:6px;padding:1px 7px;
+  border-radius:999px;font-size:10.5px;font-weight:700;line-height:1.5;letter-spacing:.01em;
+  white-space:nowrap;vertical-align:1px;color:#3A2A00;
+  background:linear-gradient(135deg,#FFE08A,#F4B740);box-shadow:0 1px 4px rgba(244,183,64,.35)}
+.hsc-tag.sm{padding:0 5px;font-size:11px}
+.pfid h2 .hsc-tag{font-size:12px;padding:2px 9px;vertical-align:3px}
+.msghead .hsc-tag{margin-left:2px}

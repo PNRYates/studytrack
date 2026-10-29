@@ -821,7 +821,14 @@ the end of the whole HSC if your list has none. The app checks every 15 seconds,
 open it starts at the bell. The confetti is one canvas under every dialog, never clickable,
 sized to the screen, and it draws nothing while the tab is out of view. A faint 🎊 in the
 bottom-left corner (and a link on the card) turns it off or back on for that device; a device
-set to reduce motion starts with it off. Nothing on the server.
+set to reduce motion starts with it off.
+
+Everyone else sees it too: a gold **🎓 HSC done** tag beside a finished member's name on the
+peloton (podium and table), the today list, the live strip, their profile and their chat
+messages (`hscTag`). Other people's subjects never reach the app, so the moment lives on the
+profile row (`profiles.hsc_done_at`, `hsc_done.sql`): each app writes its own person's, and
+the database filled it in for everyone from `hsc_last_paper` to begin with. It may be in the
+future, and the tag appears once it has passed. It's left out of the profile history.
 
 ### Pomodoro (`pomo.sql`)
 

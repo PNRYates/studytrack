@@ -3115,7 +3115,7 @@ function paintLive(force) {
       style="--lc-subj:${esc(subjectTint(w.subject))}">
       <div class="lc-top">
         ${avatarHTML(p, "sm")}
-        <span class="lc-who">${esc(mine ? "You" : p.display_name)}</span>
+        <span class="lc-who">${esc(mine ? "You" : p.display_name)}</span>${typeof hscTag === "function" ? hscTag(t.user_id, true) : ""}
         ${pm ? '<span class="lc-pomo" aria-label="Pomodoro">🍅</span>' : ""}
         ${state}
       </div>
@@ -3343,7 +3343,7 @@ function renderHome() {
     if (x === null) return `<div class="railgap">···</div>`;
     const rr = x.g > 0 ? x.h / x.g : (x.h > 0 ? 1 : null);
     return `<div class="rowbar" style="grid-template-columns:190px 1fr 108px">
-      <div class="who">${avatarHTML(x.p, "sm")}<span class="nm" style="${x.p.id === UID ? "text-decoration:underline" : ""}">${esc(x.p.display_name)}</span>${
+      <div class="who">${avatarHTML(x.p, "sm")}<span class="nm" style="${x.p.id === UID ? "text-decoration:underline" : ""}">${esc(x.p.display_name)}</span>${typeof hscTag === "function" ? hscTag(x.p.id, true) : ""}${
         CUR === todayISO() && liveMsFor(x.p.id) ? `<i class="railive" title="On the clock now, counted in"></i>` : ""}</div>
       <div class="track" style="height:22px">
         <div style="position:absolute;left:${(x.g / mx * 100).toFixed(1)}%;top:0;bottom:0;width:2px;background:#4A6572"></div>
@@ -4416,7 +4416,7 @@ function renderCrewNow() {
       <div class="rank">#${i + 1}</div>
       ${avatarHTML(r.p, i === 0 ? "xl" : "lg")}
       <div class="hrs">${M.big(r)}<span style="font-size:13px;font-weight:500;color:var(--ink-soft)">${M.unit}</span></div>
-      <div class="nm2">${esc(r.p.display_name)}${typeof playLevelTag === "function" ? playLevelTag(r.id) : ""}</div>
+      <div class="nm2">${esc(r.p.display_name)}${typeof playLevelTag === "function" ? playLevelTag(r.id) : ""}${typeof hscTag === "function" ? hscTag(r.id) : ""}</div>
       <div class="sub2">${r.sessions} session${r.sessions === 1 ? "" : "s"} · ${
         LB_METRIC === "hours" ? `best day ${f1(r.best)} h` : `${f1(r.hours)} h in total`}</div>
     </div>`;
@@ -4452,7 +4452,7 @@ function renderCrewNow() {
     const medal = i === 0 ? "var(--gold)" : i === 1 ? "var(--silver)" : i === 2 ? "var(--bronze)" : "var(--ink-soft)";
     return `<tr class="${r.id === UID ? "me" : ""}">
       <td class="l" style="font-weight:700;color:${medal}">${i + 1}</td>
-      <td class="l"><div class="who person" data-profile="${r.id}" title="See ${esc(r.p.display_name)}'s full profile">${avatarHTML(r.p, "sm")}<span class="nm">${esc(r.p.display_name)}</span>${typeof playLevelTag === "function" ? playLevelTag(r.id) : ""}</div></td>
+      <td class="l"><div class="who person" data-profile="${r.id}" title="See ${esc(r.p.display_name)}'s full profile">${avatarHTML(r.p, "sm")}<span class="nm">${esc(r.p.display_name)}</span>${typeof playLevelTag === "function" ? playLevelTag(r.id) : ""}${typeof hscTag === "function" ? hscTag(r.id) : ""}</div></td>
       <td style="font-weight:700">${f1(r.hours)}</td>
       <td>${r.sessions}</td>
       <td>${f1(r.hours / Math.max(1, days.length))}</td>
@@ -5656,7 +5656,7 @@ async function openProfile(id) {
     <div class="pfhead">
       ${avatarHTML(p, "xl")}
       <div class="pfid">
-        <h2>${esc(p.display_name)}${mine ? ` <span class="pilltag">you</span>` : ""}</h2>
+        <h2>${esc(p.display_name)}${mine ? ` <span class="pilltag">you</span>` : ""}${typeof hscTag === "function" ? hscTag(id) : ""}</h2>
         <div class="pfmeta">${
           rank >= 0 ? `#${rank + 1} of ${wk.length} this week · ${f1(wkHours)} h` : "no hours this week"}</div>
       </div>
@@ -7156,7 +7156,7 @@ function msgHTML(m, prev) {
     <div class="msgbody">
       <div class="msghead">
         <span class="msgwho person" data-profile="${esc(m.user_id)}"
-          style="color:${esc(p.colour || "var(--ink)")}">${esc(p.display_name)}</span>
+          style="color:${esc(p.colour || "var(--ink)")}">${esc(p.display_name)}</span>${typeof hscTag === "function" ? hscTag(m.user_id) : ""}
         ${t.cls ? `<span class="hrpill ${t.cls}" title="${f1(t.hours)} hours logged today">${f1(t.hours)}h</span>` : ""}
         <span class="msgtime">${esc(chatTimeLabel(m.created_at))}</span>
         ${canDelete ? `<button class="msgdel" data-msgdel="${esc(m.id)}" title="Delete this message">delete</button>` : ""}

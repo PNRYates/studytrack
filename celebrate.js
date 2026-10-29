@@ -57,6 +57,41 @@ function hscDone() {
   return HSC_DONE_MEMO.val;
 }
 
+/* ---------------------------------------------------------------------------
+   Everybody else's: profiles.hsc_done_at (hsc_done.sql)
+
+   Other people's subjects never reach this app, so each app writes its own
+   person's moment onto their profile row, which everybody reads already.
+   The database filled it in for everyone from the timetable to begin with;
+   your app corrects it whenever it knows better (a hand-typed subject name,
+   a date of your own). It may be ahead: the tag appears once it has passed.
+   --------------------------------------------------------------------------- */
+function hscDoneFor(id) {
+  const p = profileRow(id);
+  const at = p && p.hsc_done_at ? new Date(p.hsc_done_at).getTime() : 0;
+  return at > 0 && Date.now() >= at;
+}
+/* The tag, for beside a name. `small` is just the hat, for tight rows. */
+function hscTag(id, small) {
+  if (!UID || !hscDoneFor(id)) return "";
+  const who = id === UID ? "You've" : esc((profileRow(id) || {}).display_name || "This member") + " has";
+  return `<span class="hsc-tag${small ? " sm" : ""}" title="${who} finished the HSC 🎉">🎓${small ? "" : " HSC done"}</span>`;
+}
+
+function hscPublish() {
+  if (!UID || !ME || typeof plnExams !== "function" || !sb) return;
+  const at = hscDoneAt();
+  if (!at) return;
+  const iso = at.toISOString();
+  const had = ME.hsc_done_at ? new Date(ME.hsc_done_at).getTime() : 0;
+  if (Math.abs(had - at.getTime()) < 60000 || hscPublish.sent === iso) return;
+  hscPublish.sent = iso;
+  sb.from("profiles").update({ hsc_done_at: iso }).eq("id", UID).then(({ error }) => {
+    if (error) { hscPublish.sent = null; return; }   /* try again on the next check */
+    ME.hsc_done_at = iso;
+  });
+}
+
 /* For paintTimer: a party hat on the tab whenever no timer is running. */
 function hscTitle(base) {
   return hscDone() && base === APP_NAME ? "🎉 " + base + " · HSC done" : base;
@@ -283,7 +318,7 @@ function hscPaintBadge(show) {
 
 function celebrateRender() {
   let done = false;
-  try { done = hscDone(); } catch (e) { console.error("celebrate", e); }
+  try { done = hscDone(); hscPublish(); } catch (e) { console.error("celebrate", e); }
   hscPaintBadge(done);
   hscPaintToggle(done);
   if (done && cfWanted()) cfStart(); else cfStop();
