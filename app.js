@@ -6108,11 +6108,12 @@ function parseCSV(text) {
 }
 async function runImport(parsed) {
   const rep = $("imp-report");
-  /* The logging rules apply to imports too: anything older than a week, over
+  /* The logging rules apply to imports too, except that they reach back past
+     the 7-day window (import_sessions.sql): anything before 1 Jan 2024, over
      8 hours, or past 16 hours on its day is left out, and the report says so. */
   const dayMins = {};
   (DB.sessions || []).forEach(x => { if (x.user_id === UID) dayMins[x.day] = (dayMins[x.day] || 0) + (x.minutes || 0); });
-  const t0 = todayISO(), oldest = addDays(t0, -LOG_BACK_DAYS);
+  const t0 = todayISO(), oldest = "2024-01-01";
   const skipped = { notime: 0, old: 0, ahead: 0, long: 0, full: 0, clash: 0 }, taken = [], rows = [];
   parsed.rows.forEach(r => {
     const m = Math.round(r.minutes), parts = r.runs && m >= 1 ? splitByDay(r.runs, m, r.day) : [];
@@ -6129,7 +6130,7 @@ async function runImport(parsed) {
   });
   const skipNote = Object.values(skipped).some(Boolean)
     ? ` Left out: ${[skipped.notime && `${skipped.notime} with no usable date, start and end time`,
-        skipped.old && `${skipped.old} from more than ${LOG_BACK_DAYS} days ago`,
+        skipped.old && `${skipped.old} from before 1 Jan 2024`,
         skipped.ahead && `${skipped.ahead} that end in the future`,
         skipped.long && `${skipped.long} over 8 hours`, skipped.full && `${skipped.full} that would take a day past 16 hours`,
         skipped.clash && `${skipped.clash} overlapping another session`]
@@ -6169,7 +6170,7 @@ async function runImport(parsed) {
        rather than claim success. */
     let saved = 0;
     for (let i = 0; i < payload.length; i += 50) {
-      const { error } = await sb.from("sessions").insert(payload.slice(i, i + 50));
+      const { error } = await sb.rpc("import_sessions", { rows: payload.slice(i, i + 50) });
       if (error) {
         await refresh();
         rep.innerHTML = `<div class="note bad">Imported ${saved} of ${payload.length} sessions, then stopped: ${esc(error.message)}. The ${saved} already in are kept, and importing the same file again skips them.</div>`;
