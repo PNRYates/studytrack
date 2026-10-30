@@ -1881,7 +1881,8 @@ security definer
 set search_path = public
 as $fn$
 begin
-  if to_jsonb(new) - 'updated_at' is not distinct from to_jsonb(old) - 'updated_at' then
+  /* hsc_done_at is the app's bookkeeping, not an edit (hsc_done.sql) */
+  if to_jsonb(new) - 'updated_at' - 'hsc_done_at' is not distinct from to_jsonb(old) - 'updated_at' - 'hsc_done_at' then
     return null;
   end if;
   perform public.log_event('profile.edit', auth.uid(), new.id, new.id,
