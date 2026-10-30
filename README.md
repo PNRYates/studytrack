@@ -713,8 +713,9 @@ activity feed.
 
 ### Importing
 The Setup tab takes the JSON backup from the solo study tracker, or a CSV with the columns
-`date, subject, area, minutes, mode, note`. Missing subjects and areas are created
-automatically. There is an export button too.
+`date, subject, area, from, to, minutes, mode, note`. From and To are required, as 9:05 or
+9:05 pm, and minutes is worked out from them, so it can be left blank. Missing subjects and
+areas are created automatically. There is an export button too.
 
 ---
 
